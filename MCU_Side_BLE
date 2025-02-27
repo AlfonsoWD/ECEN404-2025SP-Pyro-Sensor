@@ -5,7 +5,7 @@
 //This code allows the ESP32-S3 to connect to wifi by gaining Wi-Fi credentials through BLE Client
 
 //Client should:
-// 1) Connect to device name "PYRO_SERVER"
+// 1) Connect to device name "PYRO_SERVER" - Use GAP to find device
 // 2) Inside the "custom/unkown Service" UUID = d69f19de17c4a287ab4b8d0785a44361 (ignore Generic Access and Generic Attribute services):
      // a)Send the SSID value to UUID = f9772ab62d31407687c03e0c3ddb467c
      // b)Send the password value to UUID = 317fa8f398f6406ab1f7b97d829dae6f
