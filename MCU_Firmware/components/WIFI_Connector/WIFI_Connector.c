@@ -1,0 +1,368 @@
+//Team member: Oscar Hernandez
+//Subsystem: MCU Software
+
+//This code allows the ESP32-S3 to connect to wifi by gaining Wi-Fi credentials through BLE Client
+
+//Client should:
+// 1) Connect to device name "PYRO_SERVER"
+// 2) Inside the "custom/unkown Service" UUID = d69f19de17c4a287ab4b8d0785a44361 (ignore Generic Access and Generic Attribute services):
+     // a)Send the SSID value to UUID = f9772ab62d31407687c03e0c3ddb467c
+     // b)Send the password value to UUID = 317fa8f398f6406ab1f7b97d829dae6f
+     // c)Send the userID value to UUID = 06f22fda6c3245db9c02a5d4efdfb999
+
+        //***NOTE: ALL VALUES WRITTEN TO THE ABOVE CHARACTERISTICS MUST BE UTF-8 text
+        //***NOTE: UUID is a hexadecimal number
+
+#include <stdio.h>
+#include "string.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "esp_log.h"
+#include "esp_nimble_hci.h"
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
+#include "host/ble_hs.h"
+#include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
+#include "esp_wifi.h"
+#include "sdkconfig.h"
+
+#include "WIFI_Connector.h"
+
+char *TAG = "ESP-Device";
+uint8_t ble_addr_type;
+
+void ble_app_advertise(void);
+void start_ble_advertising(void);
+void stop_ble(void);
+void wifi_connection(void);
+void ble_app_on_sync(void);
+static const struct ble_gatt_svc_def gatt_svcs[];
+
+esp_netif_t *wifi_netif = NULL;
+
+static const ble_uuid128_t Buffer_Ready_Identifier = BLE_UUID128_INIT(
+    0x0d, 0x0a, 0x67, 0xef, 0x53, 0x0b, 0x44, 0x47,
+    0xa2, 0xc0, 0x8f, 0x08, 0xb2, 0xd4, 0x4b, 0x63);
+
+static const ble_uuid128_t Service_Identifier = BLE_UUID128_INIT(
+    0xd6, 0x9f, 0x19, 0xde, 0x17, 0xc4, 0xa2, 0x87,
+    0xab, 0x4b, 0x8d, 0x07, 0x85, 0xa4, 0x43, 0x61);
+
+static const ble_uuid128_t SSID_Identifier = BLE_UUID128_INIT(
+    0xf9, 0x77, 0x2a, 0xb6, 0x2d, 0x31, 0x40, 0x76,
+    0x87, 0xc0, 0x3e, 0x0c, 0x3d, 0xdb, 0x46, 0x7c);
+
+static const ble_uuid128_t Password_Identifier = BLE_UUID128_INIT(
+    0x31, 0x7f, 0xa8, 0xf3, 0x98, 0xf6, 0x40, 0x6a,
+    0xb1, 0xf7, 0xb9, 0x7d, 0x82, 0x9d, 0xae, 0x6f);
+
+static const ble_uuid128_t UserID_Identifier = BLE_UUID128_INIT(
+    0x06, 0xf2, 0x2f, 0xda, 0x6c, 0x32, 0x45, 0xdb,
+    0x9c, 0x02, 0xa5, 0xd4, 0xef, 0xdf, 0xb9, 0x99);
+                
+#define MAX_SSID_LENGTH 32
+#define MAX_PASSWORD_LENGTH 64
+#define MAX_USER_ID_LENGTH 128
+#define MAX_RETRIES 5
+
+uint8_t Counter = 0;
+
+char WIFI_SSID[MAX_SSID_LENGTH];
+char WIFI_PASSWORD[MAX_PASSWORD_LENGTH];
+char USER_ID[MAX_USER_ID_LENGTH];
+
+int retry_num = 0;
+bool wifi_connected = false;
+bool waiting_for_credentials = true; // Flag to indicate when credentials are needed
+
+void ble_hs_task(void *param);
+
+void stop_wifi() {
+    if (wifi_netif != NULL) {
+        esp_netif_destroy(wifi_netif); // Destroy the Wi-Fi interface
+        wifi_netif = NULL;
+    }
+    esp_wifi_stop();
+}
+
+
+static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    if (event_id == WIFI_EVENT_STA_START) {
+        ESP_LOGI(TAG, "Wi-Fi connecting...");
+    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
+        ESP_LOGI(TAG, "Wi-Fi connected");
+        wifi_connected = true;
+    } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGI(TAG, "Wi-Fi lost connection");
+        wifi_connected = false;
+        
+        if (retry_num < MAX_RETRIES) {
+            esp_wifi_connect();
+            retry_num++;
+            ESP_LOGI(TAG, "Retrying Wi-Fi connection... Attempt %d/%d", retry_num, MAX_RETRIES);
+        } else {
+            ESP_LOGI(TAG, "Wi-Fi connection failed. Restarting BLE for new credentials...");
+            esp_wifi_stop();
+            waiting_for_credentials = true; // Request new credentials
+            retry_num = 0; // Reset retry counter
+            start_ble_advertising(); // Restart BLE
+        }
+    } else if (event_id == IP_EVENT_STA_GOT_IP) {
+        ESP_LOGI(TAG, "Wi-Fi got IP...");
+    }
+}
+
+void Readvertise_ble() {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    nimble_port_init();
+    ble_svc_gatt_init();                       // 4 - Initialize NimBLE configuration - gatt service
+    ble_gatts_count_cfg(gatt_svcs);            // 4 - Initialize NimBLE configuration - config gatt services
+    ble_gatts_add_svcs(gatt_svcs);             // 4 - Initialize NimBLE configuration - queues gatt services.
+    ble_hs_cfg.sync_cb = ble_app_on_sync;      // 5 - Initialize application
+    nimble_port_freertos_init(ble_hs_task);
+}
+
+void wifi_connection() {
+    esp_netif_init();
+    esp_event_loop_create_default();
+    
+    // Create Wi-Fi STA interface and store the pointer
+    wifi_netif = esp_netif_create_default_wifi_sta();
+    if (wifi_netif == NULL) {
+        ESP_LOGE(TAG, "Failed to create default Wi-Fi STA interface");
+        return;
+    }
+
+    wifi_init_config_t wifi_initiation = WIFI_INIT_CONFIG_DEFAULT();
+
+    esp_wifi_init(&wifi_initiation);
+
+
+    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL);
+
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL);
+
+    wifi_config_t wifi_configuration = { 0 };
+    strcpy((char*)wifi_configuration.sta.ssid, WIFI_SSID);
+    strcpy((char*)wifi_configuration.sta.password, WIFI_PASSWORD);
+    
+    esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_configuration);
+    esp_wifi_start();
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_connect();
+    ESP_LOGI(TAG, "Wi-Fi connection initiated.");
+}
+
+static int device_write_SSID(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    size_t len = ctxt->om->om_len;
+    if (len >= MAX_SSID_LENGTH) len = MAX_SSID_LENGTH - 1;
+    strncpy(WIFI_SSID, (char *)ctxt->om->om_data, len);
+    WIFI_SSID[len] = '\0';
+    ESP_LOGI(TAG, "Received SSID: %s", WIFI_SSID);
+    Counter = Counter + 1;
+    return 0;
+}
+
+static int device_write_PASSWORD(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    size_t len = ctxt->om->om_len;
+
+    // Check if the received password is empty (i.e., an open network)
+    if (len == 0) {
+        ESP_LOGW(TAG, "No password received, assuming open network.");
+        WIFI_PASSWORD[0] = '\0';  // Set to empty string for open networks
+        return 0;
+    }
+
+    // Ensure length does not exceed the maximum allowed length
+    if (len >= MAX_PASSWORD_LENGTH) {
+        len = MAX_PASSWORD_LENGTH - 1;
+    }
+
+    strncpy(WIFI_PASSWORD, (char *)ctxt->om->om_data, len);
+    WIFI_PASSWORD[len] = '\0';
+
+    ESP_LOGI(TAG, "Received Password: %s", WIFI_PASSWORD);
+    Counter++;
+
+    return 0;
+}
+
+
+static int device_write_USERID(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    size_t len = ctxt->om->om_len;
+    if (len >= MAX_USER_ID_LENGTH) len = MAX_USER_ID_LENGTH - 1;
+    strncpy(USER_ID, (char *)ctxt->om->om_data, len);
+    USER_ID[len] = '\0';
+    ESP_LOGI(TAG, "Received User ID: %s", USER_ID);
+    Counter = Counter + 1;
+    return 0;
+}
+
+void stop_ble() {
+    ESP_LOGI(TAG, "Stopping BLE...");
+    nimble_port_stop();
+    nimble_port_deinit();
+}
+
+void start_ble_advertising() {
+    ESP_LOGI(TAG, "Starting BLE advertising...");
+    ble_app_advertise();
+}
+
+// BLE event handling
+static int ble_gap_event(struct ble_gap_event *event, void *arg)
+{
+    switch (event->type)
+    {
+    // Advertise if connected
+    case BLE_GAP_EVENT_CONNECT:
+        ESP_LOGI("GAP", "BLE GAP EVENT CONNECT %s", event->connect.status == 0 ? "OK!" : "FAILED!");
+        if (event->connect.status != 0)
+        {
+            ble_app_advertise();
+        }
+        break;
+    // Advertise again after completion of the event
+    case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGI("GAP", "BLE GAP EVENT DISCONNECTED");
+        break;
+    case BLE_GAP_EVENT_ADV_COMPLETE:
+        ESP_LOGI("GAP", "BLE GAP EVENT");
+        ble_app_advertise();
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+void ble_app_advertise(void) {
+        // GAP - device name definition
+        struct ble_hs_adv_fields fields;
+        const char *device_name;
+        memset(&fields, 0, sizeof(fields));
+        device_name = ble_svc_gap_device_name(); // Read the BLE device name
+        fields.name = (uint8_t *)device_name;
+        fields.name_len = strlen(device_name);
+        fields.name_is_complete = 1;
+        ble_gap_adv_set_fields(&fields);
+    
+        // GAP - device connectivity definition
+        struct ble_gap_adv_params adv_params;
+        memset(&adv_params, 0, sizeof(adv_params));
+        adv_params.conn_mode = BLE_GAP_CONN_MODE_UND; // connectable or non-connectable
+        adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN; // discoverable or non-discoverable
+        ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
+}
+
+
+// The infinite task
+void ble_hs_task(void *param)
+{
+    nimble_port_run();
+    nimble_port_freertos_deinit(); // This function will return only when nimble_port_stop() is executed
+}
+
+static int device_ready(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    os_mbuf_append(ctxt->om, "ADD WIFI SSID to 0xDEF | ADD WIFI PASSWORD to 0xCE1 | ADD USER_ID to 0xCAB", strlen("ADD WIFI SSID to 0xDEF | ADD WIFI PASSWORD to 0xCE1 | ADD USER_ID to 0xCAB"));
+    return 0;
+}
+
+// Array of pointers to other service definitions
+// UUID - Universal Unique Identifier
+static const struct ble_gatt_svc_def gatt_svcs[] = {
+    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = (ble_uuid_t *)&Service_Identifier,                 // Define UUID for device type
+        .characteristics = (struct ble_gatt_chr_def[]){
+        {.uuid = (ble_uuid_t *)&Buffer_Ready_Identifier,           // Define UUID for reading
+        .flags = BLE_GATT_CHR_F_WRITE,
+        .access_cb = device_ready},
+        {.uuid = (ble_uuid_t *)&SSID_Identifier,           // Define UUID for writing
+        .flags = BLE_GATT_CHR_F_WRITE,
+        .access_cb = device_write_SSID},
+        {.uuid = (ble_uuid_t *)&Password_Identifier,           // Define UUID for writing
+        .flags = BLE_GATT_CHR_F_WRITE,
+        .access_cb = device_write_PASSWORD},
+        {.uuid = (ble_uuid_t *)&UserID_Identifier,           // Define UUID for writing
+        .flags = BLE_GATT_CHR_F_WRITE,
+        .access_cb = device_write_USERID},
+        {0}}},
+    {0}
+};
+
+void ble_app_on_sync(void)
+{
+    ble_hs_id_infer_auto(0, &ble_addr_type); // Determines the best address type automatically
+    ble_app_advertise();                     // Define the BLE connection
+}
+
+
+
+//    Code flow to establish Wi-Fi
+// 1)Enable BLE Service, with device name = "PYRO_SERVER"
+// 2)Wait for client to:
+        // a)Write Wi-Fi SSID value
+        // b)Write Wi-Fi password value
+        // c)Write UserID value 
+//3) Store the client's values into global variables
+//4) Deactivate BLE, and use the stored variables to connect to Wi-Fi
+//5) Function returns the stored UserID
+
+char* Connect_To_WIFI() {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+
+    nimble_port_init();
+    ble_svc_gap_device_name_set("PYRO_SERVER"); // 4 - Initialize NimBLE configuration - server name
+    ble_svc_gap_init();                        // 4 - Initialize NimBLE configuration - gap service
+    ble_svc_gatt_init();                       // 4 - Initialize NimBLE configuration - gatt service
+    ble_gatts_count_cfg(gatt_svcs);            // 4 - Initialize NimBLE configuration - config gatt services
+    ble_gatts_add_svcs(gatt_svcs);             // 4 - Initialize NimBLE configuration - queues gatt services.
+    ble_hs_cfg.sync_cb = ble_app_on_sync;      // 5 - Initialize application
+    nimble_port_freertos_init(ble_hs_task);    // 6 - Run Host task
+    
+    while (true) {
+        if (Counter == 3) {
+            waiting_for_credentials = false;
+            Counter = 0;
+        }
+        if (waiting_for_credentials) {
+            ESP_LOGI(TAG, "Waiting for Wi-Fi credentials via BLE...");
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        
+        ESP_LOGI(TAG, "Stopping BLE and connecting to Wi-Fi...");
+        stop_ble();
+        wifi_connection();
+        
+        // Wait for Wi-Fi connection result
+        int wait_time = 0;
+        while (wait_time < 10 && !wifi_connected) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            wait_time++;
+        }
+
+        if (!wifi_connected) {
+            ESP_LOGI(TAG, "Wi-Fi connection failed. Restarting BLE for new credentials...");
+            stop_wifi();  // Use stop_wifi() instead of esp_wifi_stop()
+            waiting_for_credentials = true;
+            retry_num = 0;
+            Readvertise_ble();
+        }
+        
+        else {
+            break;
+        }
+    }
+    
+return USER_ID; 
+}  
