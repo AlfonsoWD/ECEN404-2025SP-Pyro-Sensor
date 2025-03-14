@@ -1,21 +1,23 @@
+
 //Team member: Oscar Hernandez
 //Subsystem: MCU Software
-//*********************************************************************************INTRODUCTION********************************************************************************************************************************************************************************************************************************
 
+//************************************************************************************************************INTRODUCTION********************************************************************************************** */
 //This code allows the ESP32-S3 to connect to wifi by gaining Wi-Fi credentials through BLE Client
 
 //Client should:
-// 1) Connect to device name "PYRO_SERVER" - Use GAP to find device
+// 1) Connect to device name "PYRO_SERVER"
 // 2) Inside the "custom/unkown Service" UUID = d69f19de17c4a287ab4b8d0785a44361 (ignore Generic Access and Generic Attribute services):
      // a)Send the SSID value to UUID = f9772ab62d31407687c03e0c3ddb467c
      // b)Send the password value to UUID = 317fa8f398f6406ab1f7b97d829dae6f
-     // c)Send the userID value to UUID = 06f22fda6c3245db9c02a5d4efdfb999
+     // c)Send the userID firt half value to UUID = 06f22fda6c3245db9c02a5d4efdfb999
+     // d)Send the userID second half value to UUID = 0d0a67ef530b4447a2c08f08b2d44b63
+     // e)Send the device/room name value, with no spaces, to UUID = 80db7abfd2c448af8e300c1558ad373f
 
         //***NOTE: ALL VALUES WRITTEN TO THE ABOVE CHARACTERISTICS MUST BE UTF-8 text
         //***NOTE: UUID is a hexadecimal number
-//*******************************************************************************************************************************************************************************************************************************************
+//****************************************************************************************************************************************************************************************************************** */
 
-        
 #include <stdio.h>
 #include "string.h"
 #include "freertos/FreeRTOS.h"
@@ -33,8 +35,13 @@
 #include "esp_wifi.h"
 #include "sdkconfig.h"
 
+#include "WIFI_Connector.h"
+
 char *TAG = "ESP-Device";
 uint8_t ble_addr_type;
+
+const char *Empty_Password = "";
+bool empty_password = false;
 
 void ble_app_advertise(void);
 void start_ble_advertising(void);
@@ -45,11 +52,11 @@ static const struct ble_gatt_svc_def gatt_svcs[];
 
 esp_netif_t *wifi_netif = NULL;
 
-static const ble_uuid128_t Buffer_Ready_Identifier = BLE_UUID128_INIT(
+static const ble_uuid128_t UserID_Identifier_Second_Half = BLE_UUID128_INIT( //SECOND HALF OF USER ID
     0x0d, 0x0a, 0x67, 0xef, 0x53, 0x0b, 0x44, 0x47,
     0xa2, 0xc0, 0x8f, 0x08, 0xb2, 0xd4, 0x4b, 0x63);
 
-static const ble_uuid128_t Service_Identifier = BLE_UUID128_INIT(
+static const ble_uuid128_t Service_Identifier = BLE_UUID128_INIT(//declaration of Service Identifier from online code generator
     0xd6, 0x9f, 0x19, 0xde, 0x17, 0xc4, 0xa2, 0x87,
     0xab, 0x4b, 0x8d, 0x07, 0x85, 0xa4, 0x43, 0x61);
 
@@ -61,20 +68,21 @@ static const ble_uuid128_t Password_Identifier = BLE_UUID128_INIT(
     0x31, 0x7f, 0xa8, 0xf3, 0x98, 0xf6, 0x40, 0x6a,
     0xb1, 0xf7, 0xb9, 0x7d, 0x82, 0x9d, 0xae, 0x6f);
 
-static const ble_uuid128_t UserID_Identifier = BLE_UUID128_INIT(
+static const ble_uuid128_t UserID_Identifier_First_Half = BLE_UUID128_INIT(//FIRST HALF OF USER ID
     0x06, 0xf2, 0x2f, 0xda, 0x6c, 0x32, 0x45, 0xdb,
     0x9c, 0x02, 0xa5, 0xd4, 0xef, 0xdf, 0xb9, 0x99);
-                
-#define MAX_SSID_LENGTH 32
-#define MAX_PASSWORD_LENGTH 64
-#define MAX_USER_ID_LENGTH 128
-#define MAX_RETRIES 5
 
+static const ble_uuid128_t Room_Name = BLE_UUID128_INIT(
+    0x80, 0xdb, 0x7a, 0xbf, 0xd2, 0xc4, 0x48, 0xaf,
+    0x8e, 0x30, 0x0c, 0x15, 0x58, 0xad, 0x37, 0x3f);
+                
 uint8_t Counter = 0;
 
 char WIFI_SSID[MAX_SSID_LENGTH];
 char WIFI_PASSWORD[MAX_PASSWORD_LENGTH];
 char USER_ID[MAX_USER_ID_LENGTH];
+char USER_ID2[MAX_USER_ID_LENGTH2];
+char ROOM_NAME[ROOM_NAME_LENGTH];
 
 int retry_num = 0;
 bool wifi_connected = false;
@@ -89,7 +97,6 @@ void stop_wifi() {
     }
     esp_wifi_stop();
 }
-
 
 static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     if (event_id == WIFI_EVENT_STA_START) {
@@ -149,8 +156,14 @@ void wifi_connection() {
 
     wifi_config_t wifi_configuration = { 0 };
     strcpy((char*)wifi_configuration.sta.ssid, WIFI_SSID);
-    strcpy((char*)wifi_configuration.sta.password, WIFI_PASSWORD);
-    
+
+    if (empty_password == true) {
+        printf("Connecting to empty password\r\n");
+        strcpy((char*)wifi_configuration.sta.password, Empty_Password); 
+    } else {
+        strcpy((char*)wifi_configuration.sta.password, WIFI_PASSWORD);
+    }
+
     esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_configuration);
     esp_wifi_start();
     esp_wifi_set_mode(WIFI_MODE_STA);
@@ -170,11 +183,30 @@ static int device_write_SSID(uint16_t conn_handle, uint16_t attr_handle, struct 
 
 static int device_write_PASSWORD(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
     size_t len = ctxt->om->om_len;
-    if (len >= MAX_PASSWORD_LENGTH) len = MAX_PASSWORD_LENGTH - 1;
+
+    // Check if the received password is empty (i.e., an open network)
+    if ((WIFI_PASSWORD[0] == '\\') && (WIFI_PASSWORD[1] == '0' && WIFI_PASSWORD[2] == '\0')) {
+        printf("Got an empty string, assuming open network \r\n");
+        empty_password = true;
+    } else if (len == 0) {  // Generic empty check
+        empty_password = true;
+        printf("The string is empty.\n");
+    }
+    else {
+        printf("Didn't get an empty string\r\n");
+    }
+
+    // Ensure length does not exceed the maximum allowed length
+    if (len >= MAX_PASSWORD_LENGTH) {
+        len = MAX_PASSWORD_LENGTH - 1;
+    }
+
     strncpy(WIFI_PASSWORD, (char *)ctxt->om->om_data, len);
     WIFI_PASSWORD[len] = '\0';
+
     ESP_LOGI(TAG, "Received Password: %s", WIFI_PASSWORD);
-    Counter = Counter + 1;
+    Counter++;
+
     return 0;
 }
 
@@ -183,7 +215,28 @@ static int device_write_USERID(uint16_t conn_handle, uint16_t attr_handle, struc
     if (len >= MAX_USER_ID_LENGTH) len = MAX_USER_ID_LENGTH - 1;
     strncpy(USER_ID, (char *)ctxt->om->om_data, len);
     USER_ID[len] = '\0';
-    ESP_LOGI(TAG, "Received User ID: %s", USER_ID);
+    ESP_LOGI(TAG, "Received User ID first half: %s", USER_ID);
+    Counter = Counter + 1;
+    return 0;
+}
+
+static int device_write_USERID2(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    size_t len = ctxt->om->om_len;
+    if (len >= MAX_USER_ID_LENGTH2) len = MAX_USER_ID_LENGTH2 - 1;
+    strncpy(USER_ID2, (char *)ctxt->om->om_data, len);
+    USER_ID2[len] = '\0';
+    ESP_LOGI(TAG, "Received User ID second half: %s", USER_ID2);
+    Counter = Counter + 1;
+    return 0;
+}
+
+static int device_write_ROOM_NAME(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    size_t len = ctxt->om->om_len;
+    if (len >= ROOM_NAME_LENGTH) len = ROOM_NAME_LENGTH - 1;
+    strncpy(ROOM_NAME, (char *)ctxt->om->om_data, len);
+    ROOM_NAME[len] = '\0';
+    ESP_LOGI(TAG, "Received Room Name: %s", ROOM_NAME);
+    Counter = Counter + 1;
     return 0;
 }
 
@@ -201,6 +254,7 @@ void start_ble_advertising() {
 // BLE event handling
 static int ble_gap_event(struct ble_gap_event *event, void *arg)
 {
+    printf("Inside ble_gap_event \r\n");
     switch (event->type)
     {
     // Advertise if connected
@@ -244,11 +298,202 @@ void ble_app_advertise(void) {
         ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
 }
 
-void wifi_ble_loop(void *pvParameter) {
-    while (1) {
-        if (Counter == 2) {
+// The infinite task
+void ble_hs_task(void *param)
+{
+    nimble_port_run();
+    nimble_port_freertos_deinit(); // This function will return only when nimble_port_stop() is executed
+}
+
+/*
+DESCRIPTORS FOR TROUBLESHOOTING
+*/
+static int SSID_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    char string[] = "WIFI SSID";
+    ble_uuid128_t gatt_svr_dsc_uuid = BLE_UUID128_INIT(0x2901);
+    int rc;
+    rc = os_mbuf_append(ctxt->om,
+                        string,
+                        strlen(string));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static int Password_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    char string[] = "WIFI Password";
+    ble_uuid128_t gatt_svr_dsc_uuid = BLE_UUID128_INIT(0x2901);
+    int rc;
+    rc = os_mbuf_append(ctxt->om,
+                        string,
+                        strlen(string));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static int First_User_ID_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    char string[] = "First User ID";
+    ble_uuid128_t gatt_svr_dsc_uuid = BLE_UUID128_INIT(0x2901);
+    int rc;
+    rc = os_mbuf_append(ctxt->om,
+                        string,
+                        strlen(string));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static int Second_User_ID_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    char string[] = "Second User ID";
+    ble_uuid128_t gatt_svr_dsc_uuid = BLE_UUID128_INIT(0x2901);
+    int rc;
+    rc = os_mbuf_append(ctxt->om,
+                        string,
+                        strlen(string));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static int Device_Name_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    char string[] = "Device Name";
+    ble_uuid128_t gatt_svr_dsc_uuid = BLE_UUID128_INIT(0x2901);
+    int rc;
+    rc = os_mbuf_append(ctxt->om,
+                        string,
+                        strlen(string));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+
+// Array of pointers to other service definitions
+// UUID - Universal Unique Identifier
+static const struct ble_gatt_svc_def gatt_svcs[] = {
+    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = (ble_uuid_t *)&Service_Identifier,                 // Define UUID for device type
+        .characteristics = (struct ble_gatt_chr_def[]){
+        {
+            .uuid = (ble_uuid_t *)&UserID_Identifier_Second_Half,           // Define UUID for reading
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .access_cb = device_write_USERID2,
+            .descriptors = (struct ble_gatt_dsc_def[])
+            {
+                {
+                    .uuid = BLE_UUID16_DECLARE(0x2901), // User Description Descriptor UUID
+                    .att_flags = BLE_ATT_F_READ,                  
+                    .access_cb = Second_User_ID_Descriptor,
+                }, {
+                    0,
+                }
+            },          
+        },
+        {
+            .uuid = (ble_uuid_t *)&SSID_Identifier,           // Define UUID for writing
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .access_cb = device_write_SSID,
+            .descriptors = (struct ble_gatt_dsc_def[])
+            {
+                {
+                    .uuid = BLE_UUID16_DECLARE(0x2901), // User Description Descriptor UUID
+                    .att_flags = BLE_ATT_F_READ,                  
+                    .access_cb = SSID_Descriptor,
+                }, {
+                    0,
+                }
+            },
+        },
+        {
+            .uuid = (ble_uuid_t *)&Password_Identifier,           // Define UUID for writing
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .access_cb = device_write_PASSWORD,
+            .descriptors = (struct ble_gatt_dsc_def[])
+            {
+                {
+                    .uuid = BLE_UUID16_DECLARE(0x2901), // User Description Descriptor UUID
+                    .att_flags = BLE_ATT_F_READ,                  
+                    .access_cb = Password_Descriptor,
+                }, {
+                    0,
+                }
+            },
+        },
+        {
+            .uuid = (ble_uuid_t *)&UserID_Identifier_First_Half,           // Define UUID for writing
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .access_cb = device_write_USERID,
+            .descriptors = (struct ble_gatt_dsc_def[])
+            {
+                {
+                    .uuid = BLE_UUID16_DECLARE(0x2901), // User Description Descriptor UUID
+                    .att_flags = BLE_ATT_F_READ,                  
+                    .access_cb = First_User_ID_Descriptor,
+                }, {
+                    0,
+                }
+            },
+        },
+        {
+            .uuid = (ble_uuid_t *)&Room_Name,  
+            .flags = BLE_GATT_CHR_F_WRITE,    
+            .access_cb = device_write_ROOM_NAME,
+            .descriptors = (struct ble_gatt_dsc_def[])
+            {
+                {
+                    .uuid = BLE_UUID16_DECLARE(0x2901), // User Description Descriptor UUID
+                    .att_flags = BLE_ATT_F_READ,                  
+                    .access_cb = Device_Name_Descriptor,
+                }, {
+                    0,
+                }
+            },
+        },
+        {0}}},
+    {0}
+};
+
+void ble_app_on_sync(void)
+{
+    ble_hs_id_infer_auto(0, &ble_addr_type); // Determines the best address type automatically
+    ble_app_advertise();                     // Define the BLE connection
+}
+
+//    Code flow to establish Wi-Fi
+// 1)Enable BLE Service, with device name = "PYRO_SERVER"
+// 2)Wait for client to:
+        // a)Write Wi-Fi SSID value
+        // b)Write Wi-Fi password value
+        // c)Write UserID value 
+//3) Store the client's values into global variables
+//4) Deactivate BLE, and use the stored variables to connect to Wi-Fi
+//5) Function returns the stored UserID
+
+UserInfo Connect_To_WIFI() {
+    UserInfo user_room_info;
+
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+
+    nimble_port_init();
+    ble_svc_gap_device_name_set("PYRO_SERVER"); // 4 - Initialize NimBLE configuration - server name
+    ble_svc_gap_init();                        // 4 - Initialize NimBLE configuration - gap service
+    ble_svc_gatt_init();                       // 4 - Initialize NimBLE configuration - gatt service
+    ble_gatts_count_cfg(gatt_svcs);            // 4 - Initialize NimBLE configuration - config gatt services
+    ble_gatts_add_svcs(gatt_svcs);             // 4 - Initialize NimBLE configuration - queues gatt services.
+    ble_hs_cfg.sync_cb = ble_app_on_sync;      // 5 - Initialize application
+    nimble_port_freertos_init(ble_hs_task);    // 6 - Run Host task
+    
+    while (true) {
+        if (Counter == 5) {
             waiting_for_credentials = false;
             Counter = 0;
+
+            //concate first and second half of user id strings
+            printf("USER_ID = %s\r\n",USER_ID);
+            printf("USER_ID2 = %s\r\n",USER_ID2);
+            strcat(USER_ID,USER_ID2);
+
+            printf("USER ID inside loop = %s\r\n",USER_ID);
         }
         if (waiting_for_credentials) {
             ESP_LOGI(TAG, "Waiting for Wi-Fi credentials via BLE...");
@@ -279,80 +524,15 @@ void wifi_ble_loop(void *pvParameter) {
             break;
         }
     }
-    while (true) {
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        printf("Main loop\r\n");
+    // Populate the struct with FULL_USER_ID and ROOM_NAME
+    strncpy(user_room_info.full_user_id, USER_ID, MAX_USER_ID_LENGTH);
+    user_room_info.full_user_id[MAX_USER_ID_LENGTH - 1] = '\0';  // Ensure null termination
+    
+    printf("USER ID outside loop = %s\r\n",user_room_info.full_user_id);
 
-    }
-}
+    strncpy(user_room_info.room_name, ROOM_NAME, ROOM_NAME_LENGTH);
+    user_room_info.room_name[ROOM_NAME_LENGTH - 1] = '\0';  // Ensure null termination
 
-// The infinite task
-void ble_hs_task(void *param)
-{
-    nimble_port_run();
-    nimble_port_freertos_deinit(); // This function will return only when nimble_port_stop() is executed
-}
-
-static int device_ready(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
-{
-    os_mbuf_append(ctxt->om, "ADD WIFI SSID to 0xDEF | ADD WIFI PASSWORD to 0xCE1 | ADD USER_ID to 0xCAB", strlen("ADD WIFI SSID to 0xDEF | ADD WIFI PASSWORD to 0xCE1 | ADD USER_ID to 0xCAB"));
-    return 0;
-}
-
-// Array of pointers to other service definitions
-// UUID - Universal Unique Identifier
-static const struct ble_gatt_svc_def gatt_svcs[] = {
-    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
-    .uuid = (ble_uuid_t *)&Service_Identifier,                 // Define UUID for device type
-        .characteristics = (struct ble_gatt_chr_def[]){
-        {.uuid = (ble_uuid_t *)&Buffer_Ready_Identifier,           // Define UUID for writing
-        .flags = BLE_GATT_CHR_F_WRITE,
-        .access_cb = device_ready},
-        {.uuid = (ble_uuid_t *)&SSID_Identifier,           // Define UUID for writing
-        .flags = BLE_GATT_CHR_F_WRITE,
-        .access_cb = device_write_SSID},
-        {.uuid = (ble_uuid_t *)&Password_Identifier,           // Define UUID for writing
-        .flags = BLE_GATT_CHR_F_WRITE,
-        .access_cb = device_write_PASSWORD},
-        {.uuid = (ble_uuid_t *)&UserID_Identifier,           // Define UUID for writing
-        .flags = BLE_GATT_CHR_F_WRITE,
-        .access_cb = device_write_USERID},
-        {0}}},
-    {0}
-};
-
-void ble_app_on_sync(void)
-{
-    ble_hs_id_infer_auto(0, &ble_addr_type); // Determines the best address type automatically
-    ble_app_advertise();                     // Define the BLE connection
-}
-
-
-
-//    Code flow to establish Wi-Fi
-// 1)Enable BLE Service, with device name = "PYRO_SERVER"
-// 2)Wait for client to:
-      // a)Write Wi-Fi SSID value
-      // b)Write Wi-Fi password value
-      // c)Write UserID value 
-//3) Store the client's values into global variables
-//4) Deactivate BLE, and use the stored variables to connect to Wi-Fi
-void app_main() {
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
-    }
-
-    nimble_port_init();
-    ble_svc_gap_device_name_set("PYRO_SERVER"); // 4 - Initialize NimBLE configuration - server name
-    ble_svc_gap_init();                        // 4 - Initialize NimBLE configuration - gap service
-    ble_svc_gatt_init();                       // 4 - Initialize NimBLE configuration - gatt service
-    ble_gatts_count_cfg(gatt_svcs);            // 4 - Initialize NimBLE configuration - config gatt services
-    ble_gatts_add_svcs(gatt_svcs);             // 4 - Initialize NimBLE configuration - queues gatt services.
-    ble_hs_cfg.sync_cb = ble_app_on_sync;      // 5 - Initialize application
-    nimble_port_freertos_init(ble_hs_task);    // 6 - Run Host task
-
-    xTaskCreate(wifi_ble_loop, "wifi_ble_loop", 4096, NULL, 5, NULL);
+return user_room_info;
 }  
