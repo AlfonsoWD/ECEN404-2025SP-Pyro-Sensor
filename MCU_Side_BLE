@@ -1,4 +1,6 @@
 
+
+
 //Team member: Oscar Hernandez
 //Subsystem: MCU Software
 
@@ -12,7 +14,6 @@
      // b)Send the password value to UUID = 317fa8f398f6406ab1f7b97d829dae6f
      // c)Send the userID firt half value to UUID = 06f22fda6c3245db9c02a5d4efdfb999
      // d)Send the userID second half value to UUID = 0d0a67ef530b4447a2c08f08b2d44b63
-     // e)Send the device/room name value, with no spaces, to UUID = 80db7abfd2c448af8e300c1558ad373f
 
         //***NOTE: ALL VALUES WRITTEN TO THE ABOVE CHARACTERISTICS MUST BE UTF-8 text
         //***NOTE: UUID is a hexadecimal number
@@ -72,9 +73,6 @@ static const ble_uuid128_t UserID_Identifier_First_Half = BLE_UUID128_INIT(//FIR
     0x06, 0xf2, 0x2f, 0xda, 0x6c, 0x32, 0x45, 0xdb,
     0x9c, 0x02, 0xa5, 0xd4, 0xef, 0xdf, 0xb9, 0x99);
 
-static const ble_uuid128_t Room_Name = BLE_UUID128_INIT(
-    0x80, 0xdb, 0x7a, 0xbf, 0xd2, 0xc4, 0x48, 0xaf,
-    0x8e, 0x30, 0x0c, 0x15, 0x58, 0xad, 0x37, 0x3f);
                 
 uint8_t Counter = 0;
 
@@ -82,7 +80,6 @@ char WIFI_SSID[MAX_SSID_LENGTH];
 char WIFI_PASSWORD[MAX_PASSWORD_LENGTH];
 char USER_ID[MAX_USER_ID_LENGTH];
 char USER_ID2[MAX_USER_ID_LENGTH2];
-char ROOM_NAME[ROOM_NAME_LENGTH];
 
 int retry_num = 0;
 bool wifi_connected = false;
@@ -149,7 +146,6 @@ void wifi_connection() {
 
     esp_wifi_init(&wifi_initiation);
 
-
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL);
 
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL);
@@ -184,25 +180,23 @@ static int device_write_SSID(uint16_t conn_handle, uint16_t attr_handle, struct 
 static int device_write_PASSWORD(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
     size_t len = ctxt->om->om_len;
 
-    // Check if the received password is empty (i.e., an open network)
-    if ((WIFI_PASSWORD[0] == '\\') && (WIFI_PASSWORD[1] == '0' && WIFI_PASSWORD[2] == '\0')) {
-        printf("Got an empty string, assuming open network \r\n");
-        empty_password = true;
-    } else if (len == 0) {  // Generic empty check
-        empty_password = true;
-        printf("The string is empty.\n");
-    }
-    else {
-        printf("Didn't get an empty string\r\n");
-    }
-
-    // Ensure length does not exceed the maximum allowed length
+    // Copy the received data into WIFI_PASSWORD buffer
     if (len >= MAX_PASSWORD_LENGTH) {
         len = MAX_PASSWORD_LENGTH - 1;
     }
-
     strncpy(WIFI_PASSWORD, (char *)ctxt->om->om_data, len);
-    WIFI_PASSWORD[len] = '\0';
+    WIFI_PASSWORD[len] = '\0'; // Ensure null termination
+
+    // Check if the received password is the literal "\0" string
+    if (WIFI_PASSWORD[0] == '\\' && WIFI_PASSWORD[1] == '0' && WIFI_PASSWORD[2] == '\0') {
+        printf("Got a literal \"\\0\" string, assuming open network \r\n");
+        empty_password = true;
+    } else if (len == 0) {  // Check if the password is empty
+        empty_password = true;
+        printf("The string is empty.\n");
+    } else {
+        printf("Didn't get an empty string\r\n");
+    }
 
     ESP_LOGI(TAG, "Received Password: %s", WIFI_PASSWORD);
     Counter++;
@@ -230,15 +224,6 @@ static int device_write_USERID2(uint16_t conn_handle, uint16_t attr_handle, stru
     return 0;
 }
 
-static int device_write_ROOM_NAME(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    size_t len = ctxt->om->om_len;
-    if (len >= ROOM_NAME_LENGTH) len = ROOM_NAME_LENGTH - 1;
-    strncpy(ROOM_NAME, (char *)ctxt->om->om_data, len);
-    ROOM_NAME[len] = '\0';
-    ESP_LOGI(TAG, "Received Room Name: %s", ROOM_NAME);
-    Counter = Counter + 1;
-    return 0;
-}
 
 void stop_ble() {
     ESP_LOGI(TAG, "Stopping BLE...");
@@ -352,17 +337,6 @@ static int Second_User_ID_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
     return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
-static int Device_Name_Descriptor(uint16_t conn_handle, uint16_t attr_handle,
-    struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    char string[] = "Device Name";
-    ble_uuid128_t gatt_svr_dsc_uuid = BLE_UUID128_INIT(0x2901);
-    int rc;
-    rc = os_mbuf_append(ctxt->om,
-                        string,
-                        strlen(string));
-    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
-}
-
 
 // Array of pointers to other service definitions
 // UUID - Universal Unique Identifier
@@ -430,21 +404,6 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 }
             },
         },
-        {
-            .uuid = (ble_uuid_t *)&Room_Name,  
-            .flags = BLE_GATT_CHR_F_WRITE,    
-            .access_cb = device_write_ROOM_NAME,
-            .descriptors = (struct ble_gatt_dsc_def[])
-            {
-                {
-                    .uuid = BLE_UUID16_DECLARE(0x2901), // User Description Descriptor UUID
-                    .att_flags = BLE_ATT_F_READ,                  
-                    .access_cb = Device_Name_Descriptor,
-                }, {
-                    0,
-                }
-            },
-        },
         {0}}},
     {0}
 };
@@ -465,8 +424,8 @@ void ble_app_on_sync(void)
 //4) Deactivate BLE, and use the stored variables to connect to Wi-Fi
 //5) Function returns the stored UserID
 
-UserInfo Connect_To_WIFI() {
-    UserInfo user_room_info;
+char* Connect_To_WIFI() {
+
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -484,7 +443,7 @@ UserInfo Connect_To_WIFI() {
     nimble_port_freertos_init(ble_hs_task);    // 6 - Run Host task
     
     while (true) {
-        if (Counter == 5) {
+        if (Counter == 4) {
             waiting_for_credentials = false;
             Counter = 0;
 
@@ -526,13 +485,8 @@ UserInfo Connect_To_WIFI() {
     }
 
     // Populate the struct with FULL_USER_ID and ROOM_NAME
-    strncpy(user_room_info.full_user_id, USER_ID, MAX_USER_ID_LENGTH);
-    user_room_info.full_user_id[MAX_USER_ID_LENGTH - 1] = '\0';  // Ensure null termination
+
+    USER_ID[MAX_USER_ID_LENGTH - 1] = '\0';  // Ensure null termination
     
-    printf("USER ID outside loop = %s\r\n",user_room_info.full_user_id);
-
-    strncpy(user_room_info.room_name, ROOM_NAME, ROOM_NAME_LENGTH);
-    user_room_info.room_name[ROOM_NAME_LENGTH - 1] = '\0';  // Ensure null termination
-
-return user_room_info;
+return USER_ID;
 }  
