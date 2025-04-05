@@ -31,6 +31,7 @@ typedef struct {
     char message[100];   // To store the message (e.g., "Gas detected: <concentration> ppm")
     bool sensor_triggered;  // Boolean to indicate if the gas sensor is triggered
     bool sensor_in_scope;   // Boolean to indicate if the sensor is in scope
+    bool gas_warning;
 } GasSensorData;
 //****************************************************************** */
 
@@ -38,12 +39,14 @@ typedef struct {
     char message[100];
     bool sensor_triggered;
     bool sensor_confirmed;
+    bool ir_warning;
 } IRSensorData;
 
 typedef struct {
     char message[100];
     bool sensor_triggered;
     bool sensor_confirmed;
+    bool uv_warning;
 } UVSensorData;
 
 //process: start port(i.e.,, ADC1), calibrate channel(e.g., ADC1 Channel3), voltage reading logic(could be infinite loop). If needed: decalibrate channel, calibrate channel. 
@@ -52,8 +55,7 @@ static bool ADC1_Channel_calibration(ADC1_Ini_Parameters Channel_Parameters, int
 static void ADC1_Channel_decalibration(adc_cali_handle_t handle);
 static void ADC1_Delete_Port(adc_oneshot_unit_handle_t Port_Handle);
 int read_voltage(bool CalibrationStatus, adc_oneshot_unit_handle_t Port_Handle,adc_cali_handle_t Channel_Handle,int Channel_number, int Port_number);
-void run_adc1(void* param);
-void TESTING_adc1(void* param); //DELETE THIS FUNCTION
+void run_adc1(void* param); 
 
 #ifdef __cplusplus
 }

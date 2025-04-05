@@ -8,7 +8,9 @@ extern "C" {
 void setup_pwm();
 void start_alarm();
 void stop_alarm();
-void soundSpeaker(bool do_soundspeaker);
+void trigger_alarm();
+void disable_alarm();
+void soundSpeaker(void *param);
 
 #ifdef __cplusplus
 }

@@ -11,6 +11,7 @@ extern "C" {
 int calculate_R0(bool CalibrationOutcome1, adc_oneshot_unit_handle_t Port_Handle,adc_cali_handle_t Handle_Channel,int number_Channel, int Port_number);
 float calculate_RS_R0_ratio(int R0, bool CalibrationOutcome1, adc_oneshot_unit_handle_t Port_Handle,adc_cali_handle_t Handle_Channel,int number_Channel, int Port_number);
 float calculate_ppm(float linear_RS_RO_Ratio, float y_intercept, float slope);
+
 //function to actively calculate resistance
 
 //function that sends Rs/R0 

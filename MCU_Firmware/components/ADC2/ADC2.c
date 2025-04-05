@@ -9,6 +9,7 @@
 #define Battery_threshold_voltage 7//voltage at which backup battery is considered dead
 
 extern QueueHandle_t battery_queue;
+extern volatile bool Delete_Tasks;
 
 ADC2_Ini_Parameters ADC2_Port_calibration() {
     ADC2_Ini_Parameters ADC2_start;
@@ -127,10 +128,12 @@ void run_adc2(void* param)
         //if backup battery is below threshold, send dead battery status to queue
         if (BatteryVoltage < Battery_threshold_voltage) {//max threshold_voltage
             battery_data.battery_good = false;
-            snprintf(battery_data.message, sizeof(battery_data.message), "Low battery level. Replace 9V battery.");
+            snprintf(battery_data.message, sizeof(battery_data.message), "Low battery level. Replace 9V battery");
+            printf("Battery voltage = %f\r\n",BatteryVoltage);
         }
         else if ((BatteryVoltage >= Battery_threshold_voltage) && (BatteryVoltage <= Battery_Standard)) {
             battery_data.battery_good = true;
+
             snprintf(battery_data.message, sizeof(battery_data.message), "Battery level within acceptable range.");
         }
         else {
@@ -138,25 +141,16 @@ void run_adc2(void* param)
             snprintf(battery_data.message, sizeof(battery_data.message), "Battery level is over-limit. Replace with a 9V battery.");
         }
 
-
-
         // Send data to queue for app_main from battery level sensor logic
         if (xQueueSend(battery_queue, &battery_data, (TickType_t)0) != pdPASS) {
             ESP_LOGE("run_adc2", "Failed to send backup battery data to queue");
         }
-
-
-
         vTaskDelay(pdMS_TO_TICKS(Battery_Wait_Duration));
+
+        if (Delete_Tasks == true) {
+            break;
+        }
     }
 
-
-
-    //delete channels
-    if (Battery_CalibrationOutcome) {
-        ADC2_Channel_decalibration(Battery_Handle_Channel2);
-    }
-
-    //delete ADC1: this delets hardware and software ONLY USE AT VERY END OF PROGRAM if hard reset is guaranteed; WILL CRASH PROGRAM; 
-    ADC2_Delete_Port(TestingParameters2.adc2_handle);
+    vTaskDelete(NULL);
 }

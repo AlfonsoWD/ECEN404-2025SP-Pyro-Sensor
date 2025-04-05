@@ -7,7 +7,6 @@
 
  */
 
-
 #include "SRAQ_Gas_Sensor.h"
 #include <math.h>
 
@@ -15,7 +14,7 @@
 #define A0 ADC_CHANNEL_5  // GPIO pin 6 on the ESP32S3 board (IO4 = A0)
 #define D0 ADC_CHANNEL_4  // GPIO pin 5 on the ESP32S3 board (IO5 = D0)
 
-#define A0_VOLTAGE_DIVIDER_RATIO 0.577367205543 // Adjust as needed. R1 = 10k, R2 = 20K. R2 bottom resistor (connected to ground)
+#define A0_VOLTAGE_DIVIDER_RATIO 1.732 // Adjust as needed. R1 = 10k, R2 = 20K. R2 bottom resistor (connected to ground)
 #define D0_VOLTAGE_DIVIDER_RATIO 0.658 // Adjust as needed
 #define VCC 5 //voltage supplied to gas sensor (in V)
 #define RL 1000 //load resistor in Ohms
@@ -23,7 +22,7 @@
 /*
 Boot up
 */
-#define R0_SAMPLING_DURATION 2000  // time (in milliseconds) duration to average R0 (e.g., 2 minutes)
+#define R0_SAMPLING_DURATION 500  // time (in milliseconds) duration to average R0 (e.g., 2 minutes)
 #define R0_SAMPLING_PERIOD 10//time (in milliseconds) between readings during R0_SAMPLING_DURATION
 
 /*
@@ -40,15 +39,17 @@ int calculate_R0(bool CalibrationOutcome1, adc_oneshot_unit_handle_t Port_Handle
     // Get the start time for averaging (two minutes)
     TickType_t start_time = xTaskGetTickCount();
     //printf("Got in2\r\n");
-    // Step 4: Read voltage continuously for 2 minutes (120,000 ms)
+    // Step 4: Average air value
     while (xTaskGetTickCount() - start_time < pdMS_TO_TICKS(R0_SAMPLING_DURATION)) {
         //printf("Reading value\r\n");
         // Read the voltage from one of the channels (you can choose to read from either or both)
         VoltageOutput = read_voltage(CalibrationOutcome1, Port_Handle, Handle_Channel, number_Channel, Port_number);
-        
+        VoltageOutput = VoltageOutput + 35;//added 35 mV after seeing offset voltage in testing
+
         // Accumulate the voltage readings
         sum_voltage += VoltageOutput;
         count++;
+        //printf("Vout for gas sensor in mv: %u\r\n",VoltageOutput);
 
         // Delay second between readings (you can adjust this delay); sampling rate
         vTaskDelay(pdMS_TO_TICKS(R0_SAMPLING_PERIOD));
@@ -65,11 +66,9 @@ int calculate_R0(bool CalibrationOutcome1, adc_oneshot_unit_handle_t Port_Handle
     float VRL = average_voltage * A0_VOLTAGE_DIVIDER_RATIO;
     VRL = VRL / 1000.0; //convert from mV to V
 
-   // ESP_LOGI("calculate_R0()", "Average VRL over %d seconds: %.4f Volts", R0_SAMPLING_DURATION / 1000, VRL);
-   printf("Gas Vo = %f\r\n",VRL);
-    int R0 = (VCC*RL)/(VRL) - RL;
-    //printf("R0: %u\r\n",R0);
-    //ESP_LOGI("calculate_R0()", "Average R0 over %d seconds: %d Ohms", R0_SAMPLING_DURATION / 1000, R0);
+    //int R0 = (VCC*RL)/(VRL) - RL;
+    float R0 = ((5000)/VRL) - 1732;
+
     return R0;
 }
 
@@ -87,11 +86,13 @@ float calculate_RS_R0_ratio(int R0, bool CalibrationOutcome1, adc_oneshot_unit_h
         //printf("Reading value\r\n");
         // Read the voltage from one of the channels (you can choose to read from either or both)
         VoltageOutput = read_voltage(CalibrationOutcome1, Port_Handle, Handle_Channel, number_Channel, Port_number);
-        
+        VoltageOutput = VoltageOutput + 35;//added 35 mV after seeing offset voltage in testing
+
         // Accumulate the voltage readings
         sum_voltage += VoltageOutput;
         count++;
 
+        //printf("Vout for gas sensor in MV: %u\r\n",VoltageOutput);
         // Delay second between readings (you can adjust this delay); sampling rate
         vTaskDelay(pdMS_TO_TICKS(RS_SAMPLING_PERIOD));
     }
@@ -107,13 +108,12 @@ float calculate_RS_R0_ratio(int R0, bool CalibrationOutcome1, adc_oneshot_unit_h
     float VRL = average_voltage * A0_VOLTAGE_DIVIDER_RATIO;
     VRL = VRL / 1000.0; //convert from mV to V
 
-    printf("Vrl = %f\r\n",VRL);
-   // ESP_LOGI("calculate_RS_R0_ratio()", "Average VRL over %d seconds: %.4f Volts", RS_SAMPLING_DURATION / 1000, VRL);
-    float RS = (VCC*RL)/(VRL) - RL; 
-    //printf("RS = %f\r\n",RS);
+
+    //float RS = (VCC*RL)/(VRL) - RL; 
+    float RS = ((5000)/VRL) - 1732;
+
     float linear_RS_R0_ratio = RS/R0;
     return linear_RS_R0_ratio;
-
 }
 
 //this function calculates the ppm of a particular gas given it's Rs/R0 ratio in linear scale

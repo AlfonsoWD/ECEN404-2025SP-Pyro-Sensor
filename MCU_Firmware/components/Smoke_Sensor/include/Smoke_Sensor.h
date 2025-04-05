@@ -1,7 +1,7 @@
 
 /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef ADPD188BI_H_
-#define ADPD188BI_H_
+#ifndef SMOKE_SENSOR
+#define SMOKE_SENSOR
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,6 +17,15 @@ extern "C" {
 #include "driver/gpio.h"
 
 /* Exported Macros -----------------------------------------------------------*/
+
+typedef struct {
+	char message[100];
+	bool sensor_warning;
+	bool sensor_confirmed;
+	bool sensor_confirmed_extreme;
+} SmokeSensorData;
+
+
 /* ADPD188 I2C device address */
 #define ADPD188BI_I2C_ADDR							0x64
 
@@ -111,8 +120,8 @@ extern "C" {
 #define ADPD188BI_WRITE_CMD							1
 
 
-void check_smoke_task(void);
 
+void smoke_task(void* param);
 
 /* Exported typedef ----------------------------------------------------------*/
 /**
@@ -159,6 +168,7 @@ typedef struct {
 	uint16_t enabled_slot;
 } adpd188bi_t;
 
+
 /* Exported variables --------------------------------------------------------*/
 
 /* Exported functions prototypes ---------------------------------------------*/
@@ -172,7 +182,7 @@ typedef struct {
  * @return ESP_OK on success
  */
 esp_err_t adpd188bi_init(adpd188bi_t *const me, i2c_master_bus_handle_t i2c_bus_handle,
-		uint8_t dev_addr, int int_gpio);
+	uint8_t dev_addr, int int_gpio, bool Reset);
 
 /**
  * @brief Function to set the working mode of the ADPD188
@@ -279,10 +289,16 @@ esp_err_t adpd188bi_check_smoke(adpd188bi_t *const me, adpd188bi_smoke_e *smoke)
  */
 int adpd188bi_get_int_gpio(adpd188bi_t *const me);
 
+
+void smoke_task(void* param);
+float get_BLUE_OVER_IR_ratio_standby(adpd188bi_t *const device);
+float get_BLUE_OVER_IR_ratio_clean(adpd188bi_t *const device);
+
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ADPD188BI_H_ */
+#endif /* SMOKE_SENSOR */
 
 /***************************** END OF FILE ************************************/

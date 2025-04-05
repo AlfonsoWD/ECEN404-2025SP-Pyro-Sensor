@@ -6,6 +6,7 @@
 #define R1 20000 //5.6k Ohms
 #define R2 10000 //3.3k Ohms
 #define Battery_VCC 9 // 9V backup battery
+#define Vin_Ratio_for_battery 2.69696969696969696
 
 float calculate_BatteryVoltage(bool CalibrationOutcome2, adc_oneshot_unit_handle_t Port_Handle,adc_cali_handle_t Handle_Channel, int number_Channel, int Port_number) {
     int sum_voltage = 0;
@@ -17,7 +18,8 @@ float calculate_BatteryVoltage(bool CalibrationOutcome2, adc_oneshot_unit_handle
         //printf("Reading value\r\n");
         // Read the voltage from one of the channels (you can choose to read from either or both)
         VoltageOutput = read_voltage2(CalibrationOutcome2, Port_Handle, Handle_Channel, number_Channel, Port_number);
-        
+        //printf("Read voltage for back up battery: %u\r\n",VoltageOutput);
+
         // Accumulate the voltage readings
         sum_voltage += VoltageOutput;
         count++;
@@ -32,14 +34,13 @@ float calculate_BatteryVoltage(bool CalibrationOutcome2, adc_oneshot_unit_handle
     if (average_voltage > 3157) { //temporary decision until new divider ratio is soldered, i.e., max = 2.4 V to the pins
         average_voltage = 3157;
     }                          
-    printf("average voltage = %u\r\n",average_voltage);
+   // printf("average voltage = %u\r\n",average_voltage);
     // Step 6: Output the average voltage (log it or return it)
-    float voltage_divider_ratio = (float) (R1 + R2) / R2; 
-    float VRL = (float) (average_voltage) * voltage_divider_ratio;
+
+    float VRL = (average_voltage * Vin_Ratio_for_battery);
     VRL = VRL / 1000.0; //convert from mV to V
 
-    float return_value = VRL;
-
+    float return_value = VRL+0.7;
+    //printf("Vin for backup battery: %f\r\n",return_value);
     return return_value;
 }
-

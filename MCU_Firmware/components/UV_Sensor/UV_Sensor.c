@@ -9,6 +9,7 @@ Normal operation
 */
 #define A0_SAMPLING_DURATION 500 //time (in milliseconds) to average Rs
 #define A0_SAMPLING_PERIOD 20//time (in milliseconds) between readings during A0_SAMPLING_DURATION
+#define UV_VIN_RATIO 1.768
 
 //initiazliation delay (in ms) duration for averaging V0 (in V)
 float UVSensor_Calibrate(bool CalibrationOutcome1, adc_oneshot_unit_handle_t Port_Handle,adc_cali_handle_t Handle_Channel,int number_Channel, int Port_number)
@@ -27,6 +28,7 @@ float UVSensor_Calibrate(bool CalibrationOutcome1, adc_oneshot_unit_handle_t Por
         // Accumulate the voltage readings
         sum_voltage += VoltageOutput;
         count++;
+        //printf("Vout for uv sensor in mV: %u\r\n",VoltageOutput);
 
         // Delay second between readings (you can adjust this delay); sampling rate
         vTaskDelay(pdMS_TO_TICKS(A0_SAMPLING_PERIOD));     
@@ -41,9 +43,10 @@ float UVSensor_Calibrate(bool CalibrationOutcome1, adc_oneshot_unit_handle_t Por
         V0 = 3157.0;
     }
 
-
+    V0 = V0 * UV_VIN_RATIO;
     V0 = V0 / 1000.0;
-
+    //printf("Vin for UV sensor in V: %f\r\n",V0);
+    
     return V0;
 }
 
@@ -58,7 +61,8 @@ float UVSensor_calculate_A0(bool CalibrationOutcome1, adc_oneshot_unit_handle_t 
         //printf("Reading value\r\n");
         // Read the voltage from one of the channels (you can choose to read from either or both)
         VoltageOutput = read_voltage(CalibrationOutcome1, Port_Handle, Handle_Channel, number_Channel, Port_number);
-        
+        //printf("Vout for uv sensor in mV: %u\r\n",VoltageOutput);
+
         // Accumulate the voltage readings
         sum_voltage += VoltageOutput;
         count++;
@@ -76,6 +80,8 @@ float UVSensor_calculate_A0(bool CalibrationOutcome1, adc_oneshot_unit_handle_t 
         A0 = 3157.0;
     }
 
+    A0 = A0 * UV_VIN_RATIO;
     A0 = A0 / 1000.0;
+    //printf("Vin for the UV sensor in V: %f\r\n",A0);
     return A0;
 }
