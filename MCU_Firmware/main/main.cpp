@@ -1,18 +1,4 @@
 
-//TO DO: SOMETIMES ALARM SOUNDS WHEN UPLOADING CODE THE FIRST TIME
-//TO DO: TRY TO DECREASE TIME DURING ADDING DEVICE PHASE THAT TAKES TO ADD NEW DEVICE
-//TO DO: discuss with app about prompting messages of limited strings to users for uuids
-//TO DO: FIX replacing battery from 6V to 9V and alarm going off
-//TO DO: RUN TEST AND EDGE CASES on app TO CATCH ERROR AND CRASHES
-//TO DO: FIX link up between replacing battery from 9V to 6Vand alarm status for gas triggering
-
-
-//TO DO: MEASURE AH OF DEVICE, AND GET IN TERMS WITH WHAT POWER SUPPLY WILL BE USED
-//possible solutions: put it into deep sleep and disconnect wifi as soon as low battery message is sent to Firebase, and then just continue to work (even alarm sound if detected) locally. That is, connect again once battery is replaced.
-//BATTERY SHOULD LAST AT LEAST 6 MINUTES UNTIL FIREFIGHTER ARRIVES
-//SCHEDULE FULL SCALE TESTING OF THE SYSTEM WITH REAL SOURCES
-//power cable: https://www.amazon.com/18AWG-Pigtail-Wiring-Replacement-120VAC/dp/B0829QG69V/ref=sr_1_3?crid=OQDJPK2EMRZ4&dib=eyJ2IjoiMSJ9.J1C3sED6sCaYAXV5p9mT9PTEeGWqxyDeezMcAoJXv4H2xL7TnhyzAw7ji2xssPzppUp5WJugJXK4wZ9zOQx7gainI8-Bc1UvJS6tXYHVrug_Fz9BTxYXFlxi1stsmMUh0ZEguo_6900nYG6eSm1tSHQRZRNrJLZIDwXEgXHQKw0wsYHU_sJ7TZpWFnpq2EqmqK4VhrQU1AfIaRoFQQgp3MAIr-PdDYnUvpQ8cRrvP2NQ-UzZLH1HgC1Wegr61gBokPSCnIz4vivrnJUdGG8ZE5HGq3BVJKNoS5cu76Zyk8Y.5EDS_lzpcA7XCP8yCWvCZj40uBSjuOqv4LzUWMdmuLE&dib_tag=se&keywords=three+prong+open+ac+power+cord+cable&qid=1743653447&s=electronics&sprefix=three+prong+open+ac+power+cord+cable%2Celectronics%2C94&sr=1-3
-
 
 #include <stdio.h>
 #include <stdbool.h>
