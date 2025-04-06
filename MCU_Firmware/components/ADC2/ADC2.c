@@ -6,7 +6,8 @@
 #define Battery_A0_Channel ADC_CHANNEL_0 //gpio 11 
 #define Battery_Wait_Duration 1000//duration time (in ms)between every battery level check
 #define Battery_Standard 9.8 //Backup battery should be at 9V, 9.8 V for a brand new battery
-#define Battery_threshold_voltage 7//voltage at which backup battery is considered dead
+#define Battery_threshold_voltage 7.2//voltage at which backup battery is considered dead
+#define Battery_Halfway 7.6 //battery voltage at which is half charged
 
 extern QueueHandle_t battery_queue;
 extern volatile bool Delete_Tasks;
@@ -120,20 +121,21 @@ void run_adc2(void* param)
 
 
     while(true){
-
-
         BatteryVoltage = calculate_BatteryVoltage(Battery_CalibrationOutcome,TestingParameters2.adc2_handle,Battery_Handle_Channel2,Battery_A0_Channel,1+TestingParameters2.init_config2.unit_id);
        // printf("BatteryVoltage = %f V\r\n",BatteryVoltage);
 
         //if backup battery is below threshold, send dead battery status to queue
         if (BatteryVoltage < Battery_threshold_voltage) {//max threshold_voltage
             battery_data.battery_good = false;
-            snprintf(battery_data.message, sizeof(battery_data.message), "Low battery level. Replace 9V battery");
+            snprintf(battery_data.message, sizeof(battery_data.message), "Alert: Backup battery is discharged. Replace 9V battery");
             printf("Battery voltage = %f\r\n",BatteryVoltage);
         }
-        else if ((BatteryVoltage >= Battery_threshold_voltage) && (BatteryVoltage <= Battery_Standard)) {
+        else if ((BatteryVoltage >= Battery_threshold_voltage) && (BatteryVoltage <= Battery_Halfway)) {
             battery_data.battery_good = true;
-
+            snprintf(battery_data.message, sizeof(battery_data.message), "Warning: Low battery level.");
+        }
+        else if ((BatteryVoltage >= Battery_Halfway) && (BatteryVoltage <= Battery_Standard)) {
+            battery_data.battery_good = true;
             snprintf(battery_data.message, sizeof(battery_data.message), "Battery level within acceptable range.");
         }
         else {

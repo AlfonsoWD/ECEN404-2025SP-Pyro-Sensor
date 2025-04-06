@@ -23,12 +23,12 @@
 #define UV_D0_Channel ADC_CHANNEL_9 //gpio pin 10
 
 #define IR_Percentage_Threshold 0.25//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
-#define IR_Comparison_Time 5000000//time (in us) for infrared source to remain active before considered as a fire by IR sensor
+#define IR_Comparison_Time 2000000//time (in us) for infrared source to remain active before considered as a fire by IR sensor
 #define IR_Logic_Mode 0 //0 = logic based on Ao, 1 = logic based on Do
 #define IR_VCC 3.1 //Supply voltage of the ir sensor in Volts. For now it's as if was 3.1
 
 #define UV_Percentage_Threshold 0.25//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
-#define UV_Comparison_Time 5000000//time (in ms) for infrared source to remain active before considered as a fire by IR sensor
+#define UV_Comparison_Time 300000//time (in us) for ultraviolet source to remain active before considered as a fire by IR sensor
 #define UV_Logic_Mode 0 //0 = logic based on Ao, 1 = logic based on Do
 #define UV_VCC 3.1 //Supply voltage of the ir sensor in Volts
                              
@@ -204,7 +204,7 @@ void run_adc1(void* param)
             gas_sensor_data.sensor_in_scope = true;
         } else if ((Rs_R0 < 0.26) || (Rs_R0 >= 13)) {
 
-            printf("Rs_Ro valueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee = %f\r\n",Rs_R0);
+            //printf("Rs_Ro valueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee = %f\r\n",Rs_R0);
 
             snprintf(gas_sensor_data.message, sizeof(gas_sensor_data.message), "Gas detected out of scope.");
             gas_sensor_data.sensor_triggered = true;
@@ -282,7 +282,7 @@ void run_adc1(void* param)
                 else if (uv_flame_detected == true) {
                     UV_Comparison_Duration = (esp_timer_get_time() - uv_last_detection_time);
                     if (UV_Comparison_Duration >= UV_Comparison_Time) {
-                        // Confirm flame detected if the condition holds for the duration
+                        //Confirm flame detected if the condition holds for the duration
                         //printf("Flame confirmed: IR wavelength detected for %d ms.\n", IR_Comparison_Duration);
                         snprintf(uv_sensor_data.message, sizeof(uv_sensor_data.message), "UV Sensor confirmed: Voltage = %f V is below threshold for %lld s.", UV_A0, UV_Comparison_Duration/1000000);
                         uv_sensor_data.sensor_confirmed = true;    
