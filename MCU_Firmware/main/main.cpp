@@ -1,4 +1,5 @@
 //TO DO: IMPLEMENT SLEEP MODE TO CONSERVER POWER, AND ALSO REMOVE UNNECESSARY CODE
+//TO DO: MEASURE POWER CONSUMPTION AND OTHER GRAPHS FROM FSR
 //TO DO: UPDATE UV_Percentage_Threshold
 //TO DO: CAPTURE DATA AND VIDEO FOR FIRE SCENARIO(S)
 //TO DO: CAPTURE DATA AND VIDEO FOR FALSE FIRE SCENARIO(S)
@@ -23,13 +24,11 @@
 #include "Speaker.h"
 #include "WIFI_Connector.h"
 #include "esp_timer.h"
-
 #include <time.h>
 #include <sys/time.h>
 #include "esp_attr.h"
 #include "esp_sleep.h"
 #include "esp_sntp.h"
-
 #include "lwip/err.h"
 #include "lwip/sys.h"
  
@@ -286,6 +285,7 @@ extern "C" void app_main(void) {
     FirebaseApp app = FirebaseApp(API_KEY);
     RTDB db = RTDB(&app, DATABASE_URL);
 
+
     std::string firebase_path = "/users/" + std::string(user_id) + "/sensors" + "/" + mcu_name;
     printf("Firebase path: %s\n", firebase_path.c_str());
 
@@ -298,20 +298,30 @@ extern "C" void app_main(void) {
 
     DeleteDevice["Delete_Sensor"] = "No";
     sendDataToFirebase(db, firebase_path + "/Delete", DeleteDevice);
+
+    vTaskDelay(pdMS_TO_TICKS(100));
     
     UserReset["Reset_Peripherals"] = "No";
     sendDataToFirebase(db, firebase_path + "/Reset", UserReset);
+
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     alarm_json["alarm_status"] = "Safe";
     alarm_json["message"] = "Alarm is off";
     sendDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
 
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     Initial_Device_Name["Sensor"] = ROOM_NAME;
     printf("room name = %s\r\n",ROOM_NAME);
     sendDataToFirebase(db,firebase_path + "/Name", Initial_Device_Name);
 
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     BatteryJson["message"] = "Battery is in good state.";
     sendDataToFirebase(db,firebase_path + "/Battery", BatteryJson);
+
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     alarm_json["alarmTime"] = "";
     sendDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
