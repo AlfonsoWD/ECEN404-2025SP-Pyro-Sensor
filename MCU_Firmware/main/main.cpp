@@ -1,4 +1,7 @@
-
+//TO DO: IMPLEMENT SLEEP MODE TO CONSERVER POWER, AND ALSO REMOVE UNNECESSARY CODE
+//TO DO: UPDATE UV_Percentage_Threshold
+//TO DO: CAPTURE DATA AND VIDEO FOR FIRE SCENARIO(S)
+//TO DO: CAPTURE DATA AND VIDEO FOR FALSE FIRE SCENARIO(S)
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -19,6 +22,7 @@
 #include "backup_battery_level.h"
 #include "Speaker.h"
 #include "WIFI_Connector.h"
+#include "esp_timer.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -31,6 +35,8 @@
  
 #define API_KEY "AIzaSyCTkErKuaRfsmr3F_fxTcb0OykQ_6rwzCE" //Pyro Sensor project API Key | Needed to create database object
 #define DATABASE_URL "https://pyro-sensor-default-rtdb.firebaseio.com/"  //Pyro Sensor Realtime database link | Needed to create database object
+
+#define Potential_Fire_Time 5000000 //Time (in us) that should be waited to confirm a potential fire 
 
 char ROOM_NAME[ROOM_NAME_LENGTH];
 volatile bool successful_initial_connection = false;
@@ -355,9 +361,18 @@ extern "C" void app_main(void) {
     bool fireDetected = false;
     Set_SystemTime_SNTP();
 
+    uint8_t uv_score = 0;
+    uint8_t ir_score = 0;
+    uint8_t smoke_score = 0;
+    uint8_t gas_score = 0;
+    uint8_t confidence = 0;
+
+    bool confirmed_confidence_value = false;
+    int64_t confidence_last_detection_time = 0;
+    int64_t Potential_Fire_Duration = 0;
+
     // Initialize alarm status
     while (true) {
-
         battery_replaced = false;
         printf("Loop iteration \r\n");
         fireDetected = false;
@@ -417,95 +432,141 @@ extern "C" void app_main(void) {
             //updateDataToFirebase(db, firebase_path + "/Smoke", smoke_json);
         }
  
-
-        //ALARM STATES------------------------------------------------------------------------------------------------------------------------------------------------------
-        if ( (ir_received_data.sensor_confirmed) || (uv_received_data.sensor_confirmed) ||
-        (smoke_received_data.sensor_confirmed) || (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered)  ) {
-
+        //SENSORS CONDITIONS------------------------------------------------------------------------------------------------------------------------------------------------------
             /*
-                    if ((ir_received_data.sensor_confirmed || uv_received_data.sensor_confirmed) &&
-        (smoke_received_data.sensor_confirmed || (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered))) {
+                uv_received_data.sensor_confirmed: UV Sensor sustained rise above baseline for ≥ 300 ms
+                ir_received_data.sensor_confirmed: Rise in IR voltage above threshold for ≥ 5000 ms
+                smoke_received_data.sensor_confirmed: Smoke value exceeded calibrated threshold
+                gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered: Gas concentration > 200 ppm
             */
-
+            uv_score = uv_received_data.sensor_confirmed ? 30 : 0;
+            ir_score = ir_received_data.sensor_confirmed ? 15 : 0;
+            smoke_score =  smoke_received_data.sensor_confirmed ? 35 : 0;
+            gas_score = (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) ? 20 : 0;
+           
+            confidence = uv_score + ir_score + smoke_score + gas_score;
+           printf("Confidence value = %u\r\n",confidence);
+           
+           //ALERT STATE 
+           if (confidence >= 70) {//trigger alarm immediately (detected flaming fire)
+               if (!alarmOn) {//sound buzzer and send alarm
+                   fireDetected = true;
+                   alarmOn = true;
+                   trigger_alarm();
+                   alarm_json["alarm_status"] = "Alarm";
+                   alarm_json["message"] = "Alarm is ON - Fire detected!";
+                   alarm_json["alarmTime"] = Get_current_date_time();
+                   updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
+               }
+           }
+           
+           else if ((confidence >= 50) && (confidence < 70)) {//potential smoldering fire
+               //TO DO: Monitor for 5 more seconds, then trigger alarm if sustained (i.e., if 50 <= confidence < 70 for 5 seconds)
+                if (confirmed_confidence_value == false) {
+                    confidence_last_detection_time = esp_timer_get_time();
+                    confirmed_confidence_value = true;
+                }
+                else if (confirmed_confidence_value == true) {
+                    Potential_Fire_Duration = (esp_timer_get_time() - confidence_last_detection_time);
+                    if (Potential_Fire_Duration >= Potential_Fire_Time) {
+                        //sound buzzer and alarm Firebase
+                        if (!alarmOn) {//sound buzzer and send alarm
+                            fireDetected = true;
+                            alarmOn = true;
+                            trigger_alarm();
+                            alarm_json["alarm_status"] = "Alarm";
+                            alarm_json["message"] = "Alarm is ON - Fire detected!";
+                            alarm_json["alarmTime"] = Get_current_date_time();
+                            updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
+                        }
+                    }
+                }
+            }
+           
+           else if ((confidence >= 30) && (confidence < 50)) {//Suspicious environment
+            confirmed_confidence_value = false;
+            // TO DO: Display the sensors that have been confirmed
+            std::string confirmed_sensors = "Confirmed Sensors: ";
             
-        // Alarm condition #1
-        if (!alarmOn) {
-            fireDetected = true;
-            alarmOn = true;
-            trigger_alarm();
-            alarm_json["alarm_status"] = "Alarm";
-            alarm_json["message"] = "Alarm is ON - Fire detected!";
-            alarm_json["alarmTime"] = Get_current_date_time();
-            updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-        }
-    
-    } else if (smoke_received_data.sensor_confirmed_extreme) {
-        // Alarm condition #2
-        if (!alarmOn) {
-            fireDetected = true;
-            alarmOn = true;
-            trigger_alarm();
-            alarm_json["alarm_status"] = "Alarm";
-            alarm_json["message"] = "Alarm is ON - Fire detected!";
-            alarm_json["alarmTime"] = Get_current_date_time();
-
-            updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-        }
-    
-    } else if ( (gas_received_data.gas_warning || ir_received_data.ir_warning ||
-               uv_received_data.uv_warning || smoke_received_data.sensor_warning) && (!battery_replaced) ) {//add device_disconnected warning tfrom disconnected wifi to firebase
-        // Warning condition
-        if (alarmOn) {
-            alarmOn = false;
-            disable_alarm(); // optional safety
-        }
-        memset(warning_message, 0, sizeof(warning_message));
-    
-        if (ir_received_data.ir_warning) {
-            strcat(warning_message, ir_received_data.message);
-            strcat(warning_message, " ");  // Add space after message
-        }
-        if (uv_received_data.uv_warning) {
-            strcat(warning_message, uv_received_data.message);
-            strcat(warning_message, " ");  // Add space after message
-        }
-        if (smoke_received_data.sensor_warning) {
-            strcat(warning_message, smoke_received_data.message);
-            strcat(warning_message, " ");  // Add space after message
-        }
-        if (gas_received_data.gas_warning) {
-            strcat(warning_message, gas_received_data.message);
-            strcat(warning_message, " ");  // Add space after message
-        }
-
-        /*
-        if (device_disconnected) {
-            strcat(warning_message, "Wi-Fi is OFF");
-        }
-        */
-
-        // Trim trailing space if present
-        size_t len = strlen(warning_message);
-        if (len > 0 && warning_message[len - 1] == ' ') {
-                    warning_message[len - 1] = '\0';  // Remove last space
-        }
-    
-        alarm_json["alarm_status"] = "Warning";
-        alarm_json["message"] = warning_message;
-        updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-    
-    } else {
-        // Safe condition
-        if (alarmOn) {
-            alarmOn = false;
-        }
-
-        disable_alarm();
-        alarm_json["alarm_status"] = "Safe";
-        alarm_json["message"] = "Alarm is OFF - No fire detected.";
-        updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-    }
-
+            if (uv_received_data.sensor_confirmed) {
+                confirmed_sensors += "UV ";
+            }
+            if (ir_received_data.sensor_confirmed) {
+                confirmed_sensors += "IR ";
+            }
+            if (smoke_received_data.sensor_confirmed) {
+                confirmed_sensors += "Smoke ";
+            }
+            if (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) {
+                confirmed_sensors += "Gas ";
+            }
+            
+            ESP_LOGI("app_main", "Confirmed sensors: %s", confirmed_sensors.c_str());
+           }
+           else if (confidence == 0) {//WARNING STATE
+            confirmed_confidence_value = false;
+               
+               //WARNING STATES: 
+               //gas_received_data.gas_warning: detected gas outside of rated range (i.e., outside of 200-1000 ppm), more likely hardware issue
+               //ir_received_data.ir_warning: Infrared value exceeded calibrated threshold
+               //uv_received_data.uv_warning: Ultraviolet value exceeded calibrated threshold
+               //smoke_received_data.sensor_warning: Smoke value exceeded calibrated threshold for nuisance sources (e.g., candle smoke)
+               //show Warming messages
+           
+               if ( (gas_received_data.gas_warning || ir_received_data.ir_warning ||
+                   uv_received_data.uv_warning || smoke_received_data.sensor_warning) && (!battery_replaced) ) {
+                      
+               if (alarmOn) {
+                   alarmOn = false;
+                   disable_alarm(); // optional safety
+               }
+               memset(warning_message, 0, sizeof(warning_message));
+           
+               if (ir_received_data.ir_warning) {
+                   strcat(warning_message, ir_received_data.message);
+                   strcat(warning_message, " ");  // Add space after message
+               }
+               if (uv_received_data.uv_warning) {
+                   strcat(warning_message, uv_received_data.message);
+                   strcat(warning_message, " ");  // Add space after message
+               }
+               if (smoke_received_data.sensor_warning) {
+                   strcat(warning_message, smoke_received_data.message);
+                   strcat(warning_message, " ");  // Add space after message
+               }
+               if (gas_received_data.gas_warning) {
+                   strcat(warning_message, gas_received_data.message);
+                   strcat(warning_message, " ");  // Add space after message
+               }
+               /*
+               if (device_disconnected) {
+                   strcat(warning_message, "Wi-Fi is OFF");
+               }
+               */
+           
+               // Trim trailing space if present
+               size_t len = strlen(warning_message);
+               if (len > 0 && warning_message[len - 1] == ' ') {
+                           warning_message[len - 1] = '\0';  // Remove last space
+               }
+           
+               alarm_json["alarm_status"] = "Warning";
+               alarm_json["message"] = warning_message;
+               updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json); 
+               }
+           
+           }
+           else {//SAFE STATE
+               confirmed_confidence_value = false;
+               if (alarmOn) {
+                   alarmOn = false;
+               }
+           
+               disable_alarm();
+               alarm_json["alarm_status"] = "Safe";
+               alarm_json["message"] = "Alarm is OFF - No fire detected.";
+               updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
+           }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------
         
     ExternalReset = ResetDeviceFunction(db, firebase_path);//recalibrate sensors as per User Request
