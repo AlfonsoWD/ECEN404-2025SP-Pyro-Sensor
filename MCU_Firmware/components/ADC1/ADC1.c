@@ -22,12 +22,12 @@
 #define UV_A0_Channel ADC_CHANNEL_8 //gpio pin 9
 #define UV_D0_Channel ADC_CHANNEL_9 //gpio pin 10
 
-#define IR_Percentage_Threshold 0.25//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
+#define IR_Percentage_Threshold 0.1//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
 #define IR_Comparison_Time 2000000//time (in us) for infrared source to remain active before considered as a fire by IR sensor
 #define IR_Logic_Mode 0 //0 = logic based on Ao, 1 = logic based on Do
 #define IR_VCC 3.1 //Supply voltage of the ir sensor in Volts. For now it's as if was 3.1
 
-#define UV_Percentage_Threshold 0.25//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
+#define UV_Percentage_Threshold 0.01//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
 #define UV_Comparison_Time 300000//time (in us) for ultraviolet source to remain active before considered as a fire by IR sensor
 #define UV_Logic_Mode 0 //0 = logic based on Ao, 1 = logic based on Do
 #define UV_VCC 3.1 //Supply voltage of the ir sensor in Volts
@@ -135,7 +135,6 @@ static void ADC1_Delete_Port(adc_oneshot_unit_handle_t Port_Handle) {
     ESP_ERROR_CHECK(adc_oneshot_del_unit(Port_Handle));
 }
 
-
 void run_adc1(void* param)
 {
     vTaskDelay(pdMS_TO_TICKS(Gas_HeatUP_time));
@@ -151,6 +150,7 @@ void run_adc1(void* param)
     float IR_V0 = IRSensor_Calibrate(IR_A0_CalibrationOutcome,TestingParameters.adc1_handle,IR_A0_Handle_Channel,IR_A0_Channel,1+TestingParameters.init_config1.unit_id);
     printf("IR_V0 is = %f\r\n",IR_V0);
     float UV_V0 = UVSensor_Calibrate(UV_A0_CalibrationOutcome,TestingParameters.adc1_handle,UV_A0_Handle_Channel,UV_A0_Channel,1+TestingParameters.init_config1.unit_id);
+    printf("UV_V0) is = %f\r\n",UV_V0);
     //declare variables needed for gas sensor
     float Rs_R0 = 0;
     float ppm_level = 0;
@@ -177,6 +177,7 @@ void run_adc1(void* param)
     adc_cali_handle_t UV_D0_Handle_Channel = NULL;
     float UV_Percentage_Difference = 0.0;
     UVSensorData uv_sensor_data;
+
     if (IR_Logic_Mode == 1) {//initialize IR_D0 in case D0 logic is used
         //printf("IR Logic mode to set 1\r\n");
         IR_D0_CalibrationOutcome = ADC1_Channel_calibration(TestingParameters,IR_D0_Channel,&IR_D0_Handle_Channel);
@@ -184,6 +185,7 @@ void run_adc1(void* param)
     if (UV_Logic_Mode == 1) {//initialize UV_D0 in case D0 logic is used
         UV_D0_CalibrationOutcome = ADC1_Channel_calibration(TestingParameters,UV_D0_Channel,&UV_D0_Handle_Channel);
     }
+
     while (true) {//sensing loop
         gas_sensor_data.gas_warning = false;
         ir_sensor_data.ir_warning = false;
@@ -223,11 +225,11 @@ void run_adc1(void* param)
 
             // Calculate the percentage difference between IR_A0 and the baseline IR_V0
             IR_Percentage_Difference = (float)(IR_V0 - IR_A0) / IR_V0;
-            //printf("Percentage difference between IR_A0 and IR_V0 = %f\r\n",IR_Percentage_Difference);
+            printf("Percentage difference between IR_A0 and IR_V0 = %f\r\n",IR_Percentage_Difference);
 
             vTaskDelay(pdMS_TO_TICKS(100));//used to be 2000 ms
             if ((fabs(IR_Percentage_Difference) > IR_Percentage_Threshold)) { //removed  && (IR_Percentage_Difference > 0), also added fabs()
-                //printf("IR_Percentage Difference bigger than 0.25\r\n");
+                printf("IR_Percentage Difference bigger than 0.25\r\n");
                 if (ir_flame_detected == false) {
                     ir_last_detection_time = esp_timer_get_time();
                     ir_flame_detected = true;
@@ -240,7 +242,7 @@ void run_adc1(void* param)
                 
                 else if (ir_flame_detected == true) {
                     IR_Comparison_Duration = (esp_timer_get_time() - ir_last_detection_time);
-                   // printf("IR flame detected\r\n");
+                    printf("IR flame detected\r\n");
                     if (IR_Comparison_Duration >= IR_Comparison_Time) {
                         //printf("IR_Comparision Duration bigger than 5 seconds");
                         // Confirm flame detected if the condition holds for the duration
@@ -252,7 +254,7 @@ void run_adc1(void* param)
                  }
             }  
             else {
-                //printf("Flame not detected\r\n");
+                printf("Flame not detected\r\n");
                 snprintf(ir_sensor_data.message, sizeof(ir_sensor_data.message), "IR Sensor: flame not detected. Voltage = %f V",IR_A0);
                 ir_sensor_data.sensor_triggered = false;
                 ir_sensor_data.sensor_confirmed = false;
@@ -265,6 +267,8 @@ void run_adc1(void* param)
             UV_A0 = UVSensor_calculate_A0(UV_A0_CalibrationOutcome, TestingParameters.adc1_handle, UV_A0_Handle_Channel, UV_A0_Channel, 1 + TestingParameters.init_config1.unit_id);
             // Calculate the percentage difference between IR_A0 and the baseline IR_V0
             UV_Percentage_Difference = (float)(UV_V0 - UV_A0) / UV_V0;
+            printf("\r\n");
+            printf("Percentage difference between UV_A0 and UV_V0 = %f\r\n",UV_Percentage_Difference);
             // Compare with the threshold to detect if there's flame (IR wavelength detected)
             vTaskDelay(pdMS_TO_TICKS(100)); //used to be 2000 ms
             if ((fabs(UV_Percentage_Difference) > UV_Percentage_Threshold)) {//removed the has to be positive requirement, i.e., |current_percentage| >= threshold_percentage
@@ -300,13 +304,13 @@ void run_adc1(void* param)
         //****************************************************************************************************************************************************************************** */
 
             // Send data to queue for app_main from gas sensor logic
-        if (xQueueSend(gas_sensor_queue, &gas_sensor_data, (TickType_t)0) != pdPASS) {
+        if (xQueueOverwrite(gas_sensor_queue, &gas_sensor_data) != pdPASS) {
             ESP_LOGE("run_adc1", "Failed to send gas data to queue");
             }
-        if (xQueueSend(ir_sensor_queue, &ir_sensor_data, (TickType_t)0) != pdPASS) {
+        if (xQueueOverwrite(ir_sensor_queue, &ir_sensor_data) != pdPASS) {
             ESP_LOGE("run_adc1", "Failed to send ir data to queue");
             }
-        if (xQueueSend(uv_sensor_queue, &uv_sensor_data, (TickType_t)0) != pdPASS) {
+        if (xQueueOverwrite(uv_sensor_queue, &uv_sensor_data) != pdPASS) {
             ESP_LOGE("run_adc1", "Failed to send uv data to queue");
             }
             

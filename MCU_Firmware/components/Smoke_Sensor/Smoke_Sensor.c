@@ -17,8 +17,8 @@
 #define ALARM_THRESHOLD 0.06 //ALARM_THRESHOLD = (BLUE/IR RATIO UNDER CLEAN AIR) - (BLUE/IR RATIO UNDER SMOKE)
                        //increase this value if smoke sensor triggers too many false alarms
 #define WARNING_THRESHOLD 0.04 //WARNING_THRESHOLD for nuisance sources (e.g., candle smoke)
-#define STANDBY_SCAN_PERIOD 1000 //period (in milliseconds (ms)) between standby scannings (total would be this value + vTaskDelay()). Increase this value for watchdog errors
-#define MAX_CONSECUTIVE_HIGH 2 //number of potential smoke scannings before sending confirmation of smoke to main
+#define STANDBY_SCAN_PERIOD 500 //period (in milliseconds (ms)) between standby scannings (total would be this value + vTaskDelay()). Increase this value for watchdog errors
+#define MAX_CONSECUTIVE_HIGH 1 //number of potential smoke scannings before sending confirmation of smoke to main
 #define MAX_CONSECUTIVE_HIGH_EXTREME 30
 /*------------------------------------------------------------------
 
@@ -641,7 +641,7 @@ float get_BLUE_OVER_IR_ratio_standby(adpd188bi_t *const device) {
 // i2c address is 0x64
 void smoke_task(void* param)
 { 
-	vTaskDelay(pdMS_TO_TICKS(1000));
+	vTaskDelay(pdMS_TO_TICKS(STANDBY_SCAN_PERIOD));
 	bool SMOKE_CONFIRMED = false;
 	bool WARNING_CONFIRMED = false;
 	SmokeSensorData smoke_sensor_data;
@@ -673,7 +673,6 @@ void smoke_task(void* param)
     int consecutive_high = 0;
 	int consecutive_high_extreme = 0;
 
-    
         ret = adpd188bi_init(&device, i2c_handle, dev_addr, INTERRUPT_GPIO_PIN, ResetSmoke); //device configurations: MIKROE-ESP32 I2C configurations, and set internal adpd188bi registers
         if (ret != ESP_OK) {
             ESP_LOGE("APP", "ADPD188BI initialization failed!");
@@ -687,6 +686,8 @@ void smoke_task(void* param)
         while (true) {//scan for smoke loop 
 			vTaskDelay(pdMS_TO_TICKS(STANDBY_SCAN_PERIOD));
             RATIO_STANDBY = get_BLUE_OVER_IR_ratio_standby(&device);//scan for the active BLUE/IR ratio
+
+			printf("RATIO_STANDBY: %f\r\n",RATIO_STANDBY);
 
             if (RATIO_STANDBY >= (RATIO_CLEAN + WARNING_THRESHOLD)) {
                 //printf("Potential smoke in smoke sensor\r\n");//send warning signal to main
@@ -726,10 +727,10 @@ void smoke_task(void* param)
 				consecutive_high_extreme = 0;
             }			
 	
-			if (xQueueSend(smoke_sensor_queue, &smoke_sensor_data, (TickType_t)0) != pdPASS) {
-				ESP_LOGE("smoke_task", "Failed to send smoke data to queue");
-				}
-		
+			if (xQueueOverwrite(smoke_sensor_queue, &smoke_sensor_data) != pdPASS) {
+				ESP_LOGE("smoke_task", "Failed to overwrite smoke data in queue");
+			}
+			
 			if (Smoke_Reset_Request == true) {
 				Smoke_Reset_Request = false;
 				RATIO_CLEAN = get_BLUE_OVER_IR_ratio_clean(&device);

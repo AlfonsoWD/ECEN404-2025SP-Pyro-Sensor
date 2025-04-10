@@ -50,6 +50,7 @@ void wifi_connection(void);
 void ble_app_on_sync(void);
 static const struct ble_gatt_svc_def gatt_svcs[];
 
+extern volatile int64_t device_start_time;
 
 esp_netif_t *wifi_netif = NULL;
 
@@ -507,8 +508,11 @@ char* Connect_To_WIFI() {
     ble_hs_cfg.sync_cb = ble_app_on_sync;      // 5 - Initialize application
     nimble_port_freertos_init(ble_hs_task);    // 6 - Run Host task
     
+
     while (true) {
         if (Counter == 5) {
+             device_start_time = esp_timer_get_time();
+
             waiting_for_credentials = false;
             Counter = 0;
 

@@ -144,7 +144,7 @@ void run_adc2(void* param)
         }
 
         // Send data to queue for app_main from battery level sensor logic
-        if (xQueueSend(battery_queue, &battery_data, (TickType_t)0) != pdPASS) {
+        if (xQueueOverwrite(battery_queue, &battery_data) != pdPASS) {
             ESP_LOGE("run_adc2", "Failed to send backup battery data to queue");
         }
         vTaskDelay(pdMS_TO_TICKS(Battery_Wait_Duration));

@@ -3,9 +3,14 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
+#include "esp_timer.h"
+
 #define BUZZER_GPIO GPIO_NUM_2
 
 static bool alarm_active = false;
+//extern volatile int64_t alarm_trigger_start;
+//extern volatile int64_t alarm_trigger_end;
+
 
 void setup_pwm()
 {
@@ -15,8 +20,13 @@ void setup_pwm()
 
 void start_alarm()
 {
+
     gpio_set_level(BUZZER_GPIO, 1);  // Turn buzzer ON
+
+    //alarm_trigger_end = esp_timer_get_time();
+    //printf("Time to activate buzzer: %lld s\n", (alarm_trigger_end - alarm_trigger_start)/1000000);
     //ESP_LOGI("BUZZER", "Buzzer ON");
+   // alarm_trigger_start = 0;
 }
 
 void stop_alarm()

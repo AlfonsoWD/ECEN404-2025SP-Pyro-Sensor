@@ -1,8 +1,12 @@
-//TO DO: IMPLEMENT SLEEP MODE TO CONSERVER POWER, AND ALSO REMOVE UNNECESSARY CODE
-//TO DO: MEASURE POWER CONSUMPTION AND OTHER GRAPHS FROM FSR
-//TO DO: UPDATE UV_Percentage_Threshold
-//TO DO: CAPTURE DATA AND VIDEO FOR FIRE SCENARIO(S)
-//TO DO: CAPTURE DATA AND VIDEO FOR FALSE FIRE SCENARIO(S)
+//TO DO: GET IR DETECDTION VALUE
+
+//TO DO: IMPROVE BLE STABILITY DURING LINK UP (I.E., RECONNECTIONS)
+//TO DO: CHECK WHETHER UV GETS TRIGGERED BY FLAME
+//TO DO: MAKE SURE IR TRIGGERS CONFIRMATION
+//TO DO: IMPROVE BEING HANDLE MOR THAN 18 BYTES SSID
+//TO DO: UPDATE THE CODE SO THAT DELETE REQUEST FOR CHANGE OF WIFI (REMOVE FROM MEMORY), AND WIFI CONNECTVITY SHOULD REMAIN AFTER POWER SHUT DOWN
+
+//RUN DETECTION ON STEAM, PAPER, CANDLE, FURNITURE, DRYWALL, WOOD, ETC... AND ADJUST VALUES ACCORDINGLY
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -31,11 +35,16 @@
 #include "esp_sntp.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
- 
+
 #define API_KEY "AIzaSyCTkErKuaRfsmr3F_fxTcb0OykQ_6rwzCE" //Pyro Sensor project API Key | Needed to create database object
 #define DATABASE_URL "https://pyro-sensor-default-rtdb.firebaseio.com/"  //Pyro Sensor Realtime database link | Needed to create database object
 
 #define Potential_Fire_Time 5000000 //Time (in us) that should be waited to confirm a potential fire 
+
+volatile int64_t device_start_time = 0;
+volatile int64_t wifi_connected_time = 0;
+volatile int64_t alarm_trigger_end = 0;
+volatile int64_t alarm_trigger_start = 0;
 
 char ROOM_NAME[ROOM_NAME_LENGTH];
 volatile bool successful_initial_connection = false;
@@ -47,7 +56,7 @@ using namespace ESPFirebase;
 Gas Sensor
 ***************************************************************
 */
-#define GAS_QUEUE_LENGTH 10
+#define GAS_QUEUE_LENGTH 1
 #define GAS_QUEUE_ITEM_SIZE sizeof(GasSensorData)
 
 QueueHandle_t gas_sensor_queue = NULL;
@@ -58,7 +67,7 @@ IR Sensor
 ***************************************************************
 */
 
-#define IR_QUEUE_LENGTH 10
+#define IR_QUEUE_LENGTH 1
 #define IR_QUEUE_ITEM_SIZE sizeof(IRSensorData)
 
 QueueHandle_t ir_sensor_queue = NULL;
@@ -68,7 +77,7 @@ QueueHandle_t ir_sensor_queue = NULL;
 UV Sensor
 ***************************************************************
 */
-#define UV_QUEUE_LENGTH 10
+#define UV_QUEUE_LENGTH 1
 #define UV_QUEUE_ITEM_SIZE sizeof(UVSensorData)
 
 QueueHandle_t uv_sensor_queue = NULL;
@@ -78,7 +87,7 @@ QueueHandle_t uv_sensor_queue = NULL;
 Backup Battery 
 ***************************************************************
 */
-#define BATTERY_QUEUE_LENGTH 10
+#define BATTERY_QUEUE_LENGTH 1
 #define BATTERY_QUEUE_ITEM_SIZE sizeof(BatteryData)
 
 QueueHandle_t battery_queue = NULL;
@@ -88,7 +97,7 @@ QueueHandle_t battery_queue = NULL;
 Smoke Sensor 
 ***************************************************************
 */
-#define SMOKE_QUEUE_LENGTH 10
+#define SMOKE_QUEUE_LENGTH 1
 #define SMOKE_QUEUE_ITEM_SIZE sizeof(SmokeSensorData)
 
 QueueHandle_t smoke_sensor_queue = NULL;
@@ -262,12 +271,14 @@ bool DeleteDeviceFunction(ESPFirebase::RTDB DB_object, std::string String_path) 
 //db.deleteData("/person3/subset2");
 
 extern "C" void app_main(void) {
-    //esp_log_level_set("*", ESP_LOG_NONE); // DISABLE ESP LOGGERS
+    esp_log_level_set("*", ESP_LOG_NONE); // DISABLE ESP LOGGERS
     bool ExternalReset = false;
     bool ExternalDelete = false;
     successful_initial_connection = false;
     printf("Requesting Wi-Fi credentials via Bluetooth...\n");
+
     char*  user_id = Connect_To_WIFI();
+
     printf("Successfully connected to Wi-Fi!\n");
     printf("Received User ID: %s\n", user_id);
     successful_initial_connection = true;
@@ -285,7 +296,6 @@ extern "C" void app_main(void) {
     FirebaseApp app = FirebaseApp(API_KEY);
     RTDB db = RTDB(&app, DATABASE_URL);
 
-
     std::string firebase_path = "/users/" + std::string(user_id) + "/sensors" + "/" + mcu_name;
     printf("Firebase path: %s\n", firebase_path.c_str());
 
@@ -298,6 +308,9 @@ extern "C" void app_main(void) {
 
     DeleteDevice["Delete_Sensor"] = "No";
     sendDataToFirebase(db, firebase_path + "/Delete", DeleteDevice);
+
+    wifi_connected_time = esp_timer_get_time();
+    printf("Device setup time: %lld us\n", (wifi_connected_time - device_start_time));
 
     vTaskDelay(pdMS_TO_TICKS(100));
     
@@ -332,7 +345,7 @@ extern "C" void app_main(void) {
     battery_queue = xQueueCreate(BATTERY_QUEUE_LENGTH, BATTERY_QUEUE_ITEM_SIZE);
     smoke_sensor_queue = xQueueCreate(SMOKE_QUEUE_LENGTH, SMOKE_QUEUE_ITEM_SIZE);
 
-    if (!gas_sensor_queue || !ir_sensor_queue || !uv_sensor_queue || !battery_queue) {
+    if (!gas_sensor_queue || !ir_sensor_queue || !uv_sensor_queue || !battery_queue || !smoke_sensor_queue) {
         ESP_LOGE("app_main", "Queue creation failed!");
         return;
     }
@@ -343,7 +356,7 @@ extern "C" void app_main(void) {
     BatteryData battery_data;
     SmokeSensorData smoke_received_data;
 
-    xTaskCreate(run_adc1, "ADC1 \r\n", 8192, NULL, 6, NULL);
+    xTaskCreate(run_adc1, "ADC1 \r\n", 8192, NULL, 5, NULL);
     xTaskCreate(smoke_task, "Smoke Sensor", 4096, NULL, 5, NULL);
     xTaskCreate(run_adc2, "ADC2 \r\n", 8192, NULL, 4, NULL);
 
@@ -381,10 +394,11 @@ extern "C" void app_main(void) {
     int64_t confidence_last_detection_time = 0;
     int64_t Potential_Fire_Duration = 0;
 
+
     // Initialize alarm status
     while (true) {
         battery_replaced = false;
-        printf("Loop iteration \r\n");
+        //printf("Loop iteration \r\n");
         fireDetected = false;
         memset(warning_message, 0, sizeof(warning_message));
 
@@ -392,7 +406,13 @@ extern "C" void app_main(void) {
             ESP_LOGI("app_main", "Battery Received message: %s", battery_data.message);
 
             BatteryJson["message"] = battery_data.message;
+
+            int64_t firebase_push_start = esp_timer_get_time();
+
             updateDataToFirebase(db,firebase_path + "/Battery", BatteryJson);
+
+            int64_t firebase_push_end = esp_timer_get_time();
+           // printf("Firebase Push Latency: %lld us\n", (firebase_push_end - firebase_push_start));
         }       
 
         if (battery_data.battery_good && !battery_was_good) {
@@ -441,6 +461,16 @@ extern "C" void app_main(void) {
             smoke_json["message"] = smoke_received_data.message;
             //updateDataToFirebase(db, firebase_path + "/Smoke", smoke_json);
         }
+
+        if (uv_received_data.sensor_confirmed) {
+           printf("UV confirmed\r\n");
+        }
+        if (ir_received_data.sensor_confirmed) {
+            printf("IR confirmed\r\n");        }
+        if (smoke_received_data.sensor_confirmed) {
+            printf("Smoke confirmed\r\n");        }
+        if (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) {
+            printf("Gas confirmed\r\n");        }
  
         //SENSORS CONDITIONS------------------------------------------------------------------------------------------------------------------------------------------------------
             /*
@@ -449,20 +479,25 @@ extern "C" void app_main(void) {
                 smoke_received_data.sensor_confirmed: Smoke value exceeded calibrated threshold
                 gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered: Gas concentration > 200 ppm
             */
-            uv_score = uv_received_data.sensor_confirmed ? 30 : 0;
-            ir_score = ir_received_data.sensor_confirmed ? 15 : 0;
-            smoke_score =  smoke_received_data.sensor_confirmed ? 35 : 0;
-            gas_score = (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) ? 20 : 0;
-           
+
+            uv_score = uv_received_data.sensor_confirmed ? 25 : 0;
+            ir_score = ir_received_data.sensor_confirmed ? 25 : 0;
+            smoke_score =  smoke_received_data.sensor_confirmed ? 25 : 0;
+            gas_score = (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) ? 25 : 0;
             confidence = uv_score + ir_score + smoke_score + gas_score;
+
            printf("Confidence value = %u\r\n",confidence);
            
            //ALERT STATE 
-           if (confidence >= 70) {//trigger alarm immediately (detected flaming fire)
+           if (confidence >= 75) {//trigger alarm immediately (detected flaming fire)
+            printf("confidence >= 75\r\n");
                if (!alarmOn) {//sound buzzer and send alarm
                    fireDetected = true;
                    alarmOn = true;
+
+                   alarm_trigger_start = esp_timer_get_time();
                    trigger_alarm();
+
                    alarm_json["alarm_status"] = "Alarm";
                    alarm_json["message"] = "Alarm is ON - Fire detected!";
                    alarm_json["alarmTime"] = Get_current_date_time();
@@ -470,12 +505,15 @@ extern "C" void app_main(void) {
                }
            }
            
-           else if ((confidence >= 50) && (confidence < 70)) {//potential smoldering fire
+           else if ((confidence >= 50) && (confidence < 75)) {//potential smoldering fire
+            printf("(confidence >= 50) && (confidence < 70\r\n");
+
                //TO DO: Monitor for 5 more seconds, then trigger alarm if sustained (i.e., if 50 <= confidence < 70 for 5 seconds)
                 if (confirmed_confidence_value == false) {
                     confidence_last_detection_time = esp_timer_get_time();
                     confirmed_confidence_value = true;
                 }
+
                 else if (confirmed_confidence_value == true) {
                     Potential_Fire_Duration = (esp_timer_get_time() - confidence_last_detection_time);
                     if (Potential_Fire_Duration >= Potential_Fire_Time) {
@@ -493,7 +531,9 @@ extern "C" void app_main(void) {
                 }
             }
            
-           else if ((confidence >= 30) && (confidence < 50)) {//Suspicious environment
+
+           else if ((confidence > 0) && (confidence < 50)) {//Suspicious environment
+            printf("(confidence >= 30) && (confidence < 50\r\n");
             confirmed_confidence_value = false;
             // TO DO: Display the sensors that have been confirmed
             std::string confirmed_sensors = "Confirmed Sensors: ";
@@ -501,6 +541,7 @@ extern "C" void app_main(void) {
             if (uv_received_data.sensor_confirmed) {
                 confirmed_sensors += "UV ";
             }
+
             if (ir_received_data.sensor_confirmed) {
                 confirmed_sensors += "IR ";
             }
@@ -515,6 +556,7 @@ extern "C" void app_main(void) {
            }
            else if (confidence == 0) {//WARNING STATE
             confirmed_confidence_value = false;
+            printf("confidence = 0\r\n");
                
                //WARNING STATES: 
                //gas_received_data.gas_warning: detected gas outside of rated range (i.e., outside of 200-1000 ppm), more likely hardware issue
@@ -565,8 +607,21 @@ extern "C" void app_main(void) {
                updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json); 
                }
            
+               confirmed_confidence_value = false;
+               if (alarmOn) {
+                   alarmOn = false;
+               }
+           
+               disable_alarm();
+               alarm_json["alarm_status"] = "Safe";
+               alarm_json["message"] = "Alarm is OFF - No fire detected.";
+               updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
+
+
+
            }
            else {//SAFE STATE
+                printf("safe condition\r\n");
                confirmed_confidence_value = false;
                if (alarmOn) {
                    alarmOn = false;
