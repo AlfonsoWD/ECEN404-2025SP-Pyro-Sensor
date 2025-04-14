@@ -1,5 +1,5 @@
 //Team member: Oscar Hernandez
-//Subsystem: MCU Software
+//Subsystem: MCU Firmware
 
 //************************************************************************************************************INTRODUCTION********************************************************************************************** */
 //This code allows the ESP32-S3 to connect to wifi by gaining Wi-Fi credentials through BLE Client
@@ -498,6 +498,9 @@ char* Connect_To_WIFI() {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
+
+    //attempt one connection
+
 
     nimble_port_init();
     ble_svc_gap_device_name_set("PYRO_SERVER"); // 4 - Initialize NimBLE configuration - server name

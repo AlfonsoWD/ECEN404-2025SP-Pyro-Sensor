@@ -27,7 +27,7 @@
 #define IR_Logic_Mode 0 //0 = logic based on Ao, 1 = logic based on Do
 #define IR_VCC 3.1 //Supply voltage of the ir sensor in Volts. For now it's as if was 3.1
 
-#define UV_Percentage_Threshold 0.01//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
+#define UV_Percentage_Threshold 0.03//percentage difference (in %/100) between IR_A0_Channel and IR_V0 at which IR Sensor is triggered 0.25-1.5%
 #define UV_Comparison_Time 300000//time (in us) for ultraviolet source to remain active before considered as a fire by IR sensor
 #define UV_Logic_Mode 0 //0 = logic based on Ao, 1 = logic based on Do
 #define UV_VCC 3.1 //Supply voltage of the ir sensor in Volts

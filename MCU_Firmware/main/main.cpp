@@ -1,12 +1,5 @@
-//TO DO: GET IR DETECDTION VALUE
-
-//TO DO: IMPROVE BLE STABILITY DURING LINK UP (I.E., RECONNECTIONS)
-//TO DO: CHECK WHETHER UV GETS TRIGGERED BY FLAME
-//TO DO: MAKE SURE IR TRIGGERS CONFIRMATION
-//TO DO: IMPROVE BEING HANDLE MOR THAN 18 BYTES SSID
-//TO DO: UPDATE THE CODE SO THAT DELETE REQUEST FOR CHANGE OF WIFI (REMOVE FROM MEMORY), AND WIFI CONNECTVITY SHOULD REMAIN AFTER POWER SHUT DOWN
-
-//RUN DETECTION ON STEAM, PAPER, CANDLE, FURNITURE, DRYWALL, WOOD, ETC... AND ADJUST VALUES ACCORDINGLY
+//Team member: Oscar Hernandez
+//Subsystem: MCU Firmware
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -38,8 +31,7 @@
 
 #define API_KEY "AIzaSyCTkErKuaRfsmr3F_fxTcb0OykQ_6rwzCE" //Pyro Sensor project API Key | Needed to create database object
 #define DATABASE_URL "https://pyro-sensor-default-rtdb.firebaseio.com/"  //Pyro Sensor Realtime database link | Needed to create database object
-
-#define Potential_Fire_Time 5000000 //Time (in us) that should be waited to confirm a potential fire 
+#define Potential_Fire_Time 15000000 //Time (in us) that should be waited to confirm a potential fire 
 
 volatile int64_t device_start_time = 0;
 volatile int64_t wifi_connected_time = 0;
@@ -272,12 +264,13 @@ bool DeleteDeviceFunction(ESPFirebase::RTDB DB_object, std::string String_path) 
 
 extern "C" void app_main(void) {
     esp_log_level_set("*", ESP_LOG_NONE); // DISABLE ESP LOGGERS
+
     bool ExternalReset = false;
     bool ExternalDelete = false;
     successful_initial_connection = false;
     printf("Requesting Wi-Fi credentials via Bluetooth...\n");
 
-    char*  user_id = Connect_To_WIFI();
+    char*  user_id = Connect_To_WIFI();//this function uses BLE to connect to Wi-Fi (i.e., doesn't save any variables, except for its return string)
 
     printf("Successfully connected to Wi-Fi!\n");
     printf("Received User ID: %s\n", user_id);
@@ -388,20 +381,21 @@ extern "C" void app_main(void) {
     uint8_t ir_score = 0;
     uint8_t smoke_score = 0;
     uint8_t gas_score = 0;
-    uint8_t confidence = 0;
+    uint8_t Certainty = 0;
 
-    bool confirmed_confidence_value = false;
-    int64_t confidence_last_detection_time = 0;
+    bool confirmed_Certainty_value = false;
+    int64_t Certainty_last_detection_time = 0;
     int64_t Potential_Fire_Duration = 0;
-
 
     // Initialize alarm status
     while (true) {
+        Certainty = 0;
         battery_replaced = false;
         //printf("Loop iteration \r\n");
         fireDetected = false;
         memset(warning_message, 0, sizeof(warning_message));
 
+        
         if (xQueueReceive(battery_queue, &battery_data, (TickType_t)5) == pdTRUE) {
             ESP_LOGI("app_main", "Battery Received message: %s", battery_data.message);
 
@@ -484,13 +478,13 @@ extern "C" void app_main(void) {
             ir_score = ir_received_data.sensor_confirmed ? 25 : 0;
             smoke_score =  smoke_received_data.sensor_confirmed ? 25 : 0;
             gas_score = (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) ? 25 : 0;
-            confidence = uv_score + ir_score + smoke_score + gas_score;
+            Certainty = uv_score + ir_score + smoke_score + gas_score;
 
-           printf("Confidence value = %u\r\n",confidence);
+           printf("Certainty value = %u\r\n",Certainty);
            
            //ALERT STATE 
-           if (confidence >= 75) {//trigger alarm immediately (detected flaming fire)
-            printf("confidence >= 75\r\n");
+           if (Certainty >= 75) {//trigger alarm immediately (detected flaming fire)
+            printf("Certainty >= 75\r\n");
                if (!alarmOn) {//sound buzzer and send alarm
                    fireDetected = true;
                    alarmOn = true;
@@ -505,17 +499,17 @@ extern "C" void app_main(void) {
                }
            }
            
-           else if ((confidence >= 50) && (confidence < 75)) {//potential smoldering fire
-            printf("(confidence >= 50) && (confidence < 70\r\n");
+           else if ((Certainty >= 50) && (Certainty < 75)) {//potential smoldering fire
+            printf("(Certainty >= 50) && (Certainty < 70\r\n");
 
-               //TO DO: Monitor for 5 more seconds, then trigger alarm if sustained (i.e., if 50 <= confidence < 70 for 5 seconds)
-                if (confirmed_confidence_value == false) {
-                    confidence_last_detection_time = esp_timer_get_time();
-                    confirmed_confidence_value = true;
+               //TO DO: Monitor for 5 more seconds, then trigger alarm if sustained (i.e., if 50 <= Certainty < 70 for 5 seconds)
+                if (confirmed_Certainty_value == false) {
+                    Certainty_last_detection_time = esp_timer_get_time();
+                    confirmed_Certainty_value = true;
                 }
 
-                else if (confirmed_confidence_value == true) {
-                    Potential_Fire_Duration = (esp_timer_get_time() - confidence_last_detection_time);
+                else if (confirmed_Certainty_value == true) {
+                    Potential_Fire_Duration = (esp_timer_get_time() - Certainty_last_detection_time);
                     if (Potential_Fire_Duration >= Potential_Fire_Time) {
                         //sound buzzer and alarm Firebase
                         if (!alarmOn) {//sound buzzer and send alarm
@@ -531,17 +525,20 @@ extern "C" void app_main(void) {
                 }
             }
            
+           else if ((Certainty > 0) && (Certainty < 50)) {//Suspicious environment
+            if (alarmOn) {
+                alarmOn = false;
+                disable_alarm(); // optional safety
+            }
 
-           else if ((confidence > 0) && (confidence < 50)) {//Suspicious environment
-            printf("(confidence >= 30) && (confidence < 50\r\n");
-            confirmed_confidence_value = false;
+            printf("(Certainty >= 30) && (Certainty < 50\r\n");
+
             // TO DO: Display the sensors that have been confirmed
             std::string confirmed_sensors = "Confirmed Sensors: ";
             
             if (uv_received_data.sensor_confirmed) {
                 confirmed_sensors += "UV ";
             }
-
             if (ir_received_data.sensor_confirmed) {
                 confirmed_sensors += "IR ";
             }
@@ -554,9 +551,14 @@ extern "C" void app_main(void) {
             
             ESP_LOGI("app_main", "Confirmed sensors: %s", confirmed_sensors.c_str());
            }
-           else if (confidence == 0) {//WARNING STATE
-            confirmed_confidence_value = false;
-            printf("confidence = 0\r\n");
+           else if (Certainty == 0) {//WARNING STATE
+            confirmed_Certainty_value = false;
+            Certainty_last_detection_time = 0;
+            printf("Certainty = 0\r\n");
+            if (alarmOn) {
+                alarmOn = false;
+                disable_alarm(); // optional safety
+            }
                
                //WARNING STATES: 
                //gas_received_data.gas_warning: detected gas outside of rated range (i.e., outside of 200-1000 ppm), more likely hardware issue
@@ -568,70 +570,48 @@ extern "C" void app_main(void) {
                if ( (gas_received_data.gas_warning || ir_received_data.ir_warning ||
                    uv_received_data.uv_warning || smoke_received_data.sensor_warning) && (!battery_replaced) ) {
                       
-               if (alarmOn) {
-                   alarmOn = false;
-                   disable_alarm(); // optional safety
-               }
-               memset(warning_message, 0, sizeof(warning_message));
-           
-               if (ir_received_data.ir_warning) {
-                   strcat(warning_message, ir_received_data.message);
-                   strcat(warning_message, " ");  // Add space after message
-               }
-               if (uv_received_data.uv_warning) {
-                   strcat(warning_message, uv_received_data.message);
-                   strcat(warning_message, " ");  // Add space after message
-               }
-               if (smoke_received_data.sensor_warning) {
-                   strcat(warning_message, smoke_received_data.message);
-                   strcat(warning_message, " ");  // Add space after message
-               }
-               if (gas_received_data.gas_warning) {
-                   strcat(warning_message, gas_received_data.message);
-                   strcat(warning_message, " ");  // Add space after message
-               }
-               /*
-               if (device_disconnected) {
-                   strcat(warning_message, "Wi-Fi is OFF");
-               }
-               */
-           
-               // Trim trailing space if present
-               size_t len = strlen(warning_message);
-               if (len > 0 && warning_message[len - 1] == ' ') {
-                           warning_message[len - 1] = '\0';  // Remove last space
-               }
-           
-               alarm_json["alarm_status"] = "Warning";
-               alarm_json["message"] = warning_message;
-               updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json); 
+                        memset(warning_message, 0, sizeof(warning_message));
+                    
+                        if (ir_received_data.ir_warning) {
+                            strcat(warning_message, ir_received_data.message);
+                            strcat(warning_message, " ");  // Add space after message
+                        }
+                        if (uv_received_data.uv_warning) {
+                            strcat(warning_message, uv_received_data.message);
+                            strcat(warning_message, " ");  // Add space after message
+                        }
+                        if (smoke_received_data.sensor_warning) {
+                            strcat(warning_message, smoke_received_data.message);
+                            strcat(warning_message, " ");  // Add space after message
+                        }
+                        if (gas_received_data.gas_warning) {
+                            strcat(warning_message, gas_received_data.message);
+                            strcat(warning_message, " ");  // Add space after message
+                        }
+                        /*
+                        if (device_disconnected) {
+                            strcat(warning_message, "Wi-Fi is OFF");
+                        }
+                        */
+                    
+                        // Trim trailing space if present
+                        size_t len = strlen(warning_message);
+                        if (len > 0 && warning_message[len - 1] == ' ') {
+                                    warning_message[len - 1] = '\0';  // Remove last space
+                        }
+                    
+                        alarm_json["alarm_status"] = "Warning";
+                        alarm_json["message"] = warning_message;
+                        updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json); 
+                        continue;
                }
            
-               confirmed_confidence_value = false;
-               if (alarmOn) {
-                   alarmOn = false;
-               }
-           
-               disable_alarm();
                alarm_json["alarm_status"] = "Safe";
                alarm_json["message"] = "Alarm is OFF - No fire detected.";
                updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
 
+           } 
 
-
-           }
-           else {//SAFE STATE
-                printf("safe condition\r\n");
-               confirmed_confidence_value = false;
-               if (alarmOn) {
-                   alarmOn = false;
-               }
-           
-               disable_alarm();
-               alarm_json["alarm_status"] = "Safe";
-               alarm_json["message"] = "Alarm is OFF - No fire detected.";
-               updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-           }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------
         
     ExternalReset = ResetDeviceFunction(db, firebase_path);//recalibrate sensors as per User Request
@@ -666,4 +646,7 @@ extern "C" void app_main(void) {
 
     vTaskDelay(pdMS_TO_TICKS(10)); // Delay before the next loop iteration
     }
+
+    ESP_LOGI("app_main", "Resetting device");
+    esp_restart();
 }
