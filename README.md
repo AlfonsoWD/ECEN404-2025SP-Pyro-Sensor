@@ -1,2 +1,3 @@
 # ECEN-403-PYRO-SENSOR
 Senior Capstone for ECEN 403 PYRO SENSOR
+TO DO: Rename repository to ECEN404 2025SP PYRO SENSOR
