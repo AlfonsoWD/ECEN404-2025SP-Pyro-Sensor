@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PyroSensor"
+        tools:targetApi="31">
+        <activity
+            android:name="com.example.pyrosensor.WelcomeActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.example.pyrosensor.LoginActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor" />
+        <activity
+            android:name="com.example.pyrosensor.RegisterActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor" />
+        <activity
+            android:name="com.example.pyrosensor.FirefighterActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor" />
+        <activity
+            android:name="com.example.pyrosensor.WorkspaceSetupActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor" />
+        <activity
+            android:name="com.example.pyrosensor.MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor" />
+        <activity
+            android:name="com.example.pyrosensor.AddSensorActivity"
+            android:exported="true"
+            android:theme="@style/Theme.PyroSensor"/>
+        <activity
+            android:name="com.example.pyrosensor.WorkspaceDisplayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.PyroSensor"/>
+        <activity
+            android:name="com.example.pyrosensor.UserInfoActivity"
+            android:exported="false"
+            android:theme="@style/Theme.PyroSensor"/>
+        <activity
+            android:name="com.example.pyrosensor.SensorDisplayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.PyroSensor"/>
+        <activity
+            android:name="com.example.pyrosensor.SensorDetailActivity"
+            android:exported="false" />
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyCTc7r5aqdkqxYmY1uyt_lNyGrDvUreN44" />
+        <service
+            android:name=".NotificationService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".AlarmService"
+            android:enabled="true"
+            android:exported="false" />
+    </application>
+
+</manifest>
