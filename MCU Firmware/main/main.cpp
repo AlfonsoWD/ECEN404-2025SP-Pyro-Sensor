@@ -100,11 +100,19 @@ volatile bool Smoke_Reset_Request = false;
 volatile bool device_disconnected = false;
 volatile bool Delete_Tasks = false;
 
+/**
+ * @brief Callback function triggered when a time synchronization event occurs.
+ * 
+ * @param tv Pointer to timeval structure with the synchronized time.
+ */
 void time_sync_notification_cb(struct timeval *tv)
 {
     ESP_LOGI(TAG_time, "Notification of a time synchronization event");
 }
 
+/**
+ * @brief Initializes SNTP (Simple Network Time Protocol) to synchronize system time with an NTP server.
+ */
 static void initialize_sntp(void)
 {
     ESP_LOGI(TAG_time, "Initializing SNTP");
@@ -117,6 +125,9 @@ static void initialize_sntp(void)
     sntp_init();
 }
 
+/**
+ * @brief Obtains and waits for system time synchronization from an NTP server.
+ */
 static void obtain_time(void)
 {
     initialize_sntp();
@@ -133,6 +144,9 @@ static void obtain_time(void)
     localtime_r(&now, &timeinfo);
 }
 
+/**
+ * @brief Sets the system time via SNTP if not already set.
+ */
 void Set_SystemTime_SNTP()  {
     time_t now;
        struct tm timeinfo;
@@ -147,6 +161,11 @@ void Set_SystemTime_SNTP()  {
        }
 }
 
+/**
+ * @brief Returns the current date and time as a string in Central Time (adjusts for DST).
+ * 
+ * @return std::string The current formatted date/time.
+ */
 std::string Get_current_date_time() {
     char strftime_buf[64];
     time_t now;
@@ -165,6 +184,13 @@ std::string Get_current_date_time() {
     return std::string(strftime_buf);  // Return a string instead of copying into char array
 }
 
+/**
+ * @brief Sends data to Firebase Realtime Database at the specified path.
+ * 
+ * @param db Reference to the Firebase RTDB object.
+ * @param path Target path in the database.
+ * @param data JSON object to send.
+ */
 void sendDataToFirebase(ESPFirebase::RTDB& db, const std::string& path, const Json::Value& data) {
     // Convert the Json::Value to a string
     Json::FastWriter writer;
@@ -175,6 +201,13 @@ void sendDataToFirebase(ESPFirebase::RTDB& db, const std::string& path, const Js
     ESP_LOGI("Firebase", "Data sent to Firebase: %s", json_str.c_str());
 }
 
+/**
+ * @brief Updates (patches) data at a specified Firebase path.
+ * 
+ * @param db Reference to the Firebase RTDB object.
+ * @param path Target path in the database.
+ * @param data JSON object with fields to update.
+ */
 void updateDataToFirebase(ESPFirebase::RTDB& db, const std::string& path, const Json::Value& data) {
     // Convert the Json::Value to a string
     Json::FastWriter writer;
@@ -185,6 +218,13 @@ void updateDataToFirebase(ESPFirebase::RTDB& db, const std::string& path, const 
     ESP_LOGI("Firebase", "Data sent to Firebase: %s", json_str.c_str());
 }
 
+/**
+ * @brief Reads JSON data from Firebase at a given path.
+ * 
+ * @param db Reference to the Firebase RTDB object.
+ * @param path Target path in the database.
+ * @return Json::Value Retrieved JSON data, or an empty object if failed.
+ */
  Json::Value readDataFromFirebase(ESPFirebase::RTDB& db, const std::string& path) {
     // Call getData() to fetch data from Firebase
     Json::Value data = db.getData(path.c_str());
@@ -205,6 +245,14 @@ void updateDataToFirebase(ESPFirebase::RTDB& db, const std::string& path, const 
     }
 }
 
+/**
+ * @brief Checks if a reset command has been issued via Firebase. Resets peripherals if commanded.
+ * 
+ * @param DB_object Firebase RTDB object.
+ * @param String_path Firebase path to the reset command.
+ * @return true If reset was commanded and acknowledged.
+ * @return false If no reset was commanded or an error occurred.
+ */
 bool ResetDeviceFunction(ESPFirebase::RTDB DB_object, std::string String_path) {
     bool ExternalReset = false;
     Json::Value UserReset = readDataFromFirebase(DB_object, String_path + "/Reset");
@@ -233,6 +281,14 @@ bool ResetDeviceFunction(ESPFirebase::RTDB DB_object, std::string String_path) {
     return ExternalReset;
 }
 
+/**
+ * @brief Checks if a delete command has been issued via Firebase. Deletes device entry if commanded.
+ * 
+ * @param DB_object Firebase RTDB object.
+ * @param String_path Firebase path to the delete command.
+ * @return true If deletion was commanded and performed.
+ * @return false If no deletion was commanded or an error occurred.
+ */
 bool DeleteDeviceFunction(ESPFirebase::RTDB DB_object, std::string String_path) {
     bool ExternalDelete = false;
     Json::Value UserDelete = readDataFromFirebase(DB_object, String_path + "/Delete");
@@ -260,38 +316,47 @@ bool DeleteDeviceFunction(ESPFirebase::RTDB DB_object, std::string String_path) 
     return ExternalDelete;
 }
 
-//db.deleteData("/person3/subset2");
-
+/**
+ * @brief Main application entry point. Initializes Wi-Fi via BLE, connects to Firebase,
+ * sets default values in the database, and creates queues for sensor data.
+ */
 extern "C" void app_main(void) {
-    esp_log_level_set("*", ESP_LOG_NONE); // DISABLE ESP LOGGERS
+    esp_log_level_set("*", ESP_LOG_NONE); // Disable all ESP loggers to suppress output
 
     bool ExternalReset = false;
     bool ExternalDelete = false;
     successful_initial_connection = false;
+
     printf("Requesting Wi-Fi credentials via Bluetooth...\n");
 
-    char*  user_id = Connect_To_WIFI();//this function uses BLE to connect to Wi-Fi (i.e., doesn't save any variables, except for its return string)
+    // Connect to Wi-Fi through BLE and retrieve user ID
+    char* user_id = Connect_To_WIFI();
 
     printf("Successfully connected to Wi-Fi!\n");
     printf("Received User ID: %s\n", user_id);
     successful_initial_connection = true;
 
+    // Retrieve ESP32 MAC address
     unsigned char mac_base[6] = {0};
     esp_efuse_mac_get_default(mac_base);
     esp_read_mac(mac_base, ESP_MAC_WIFI_STA);
 
+    // Format MAC address as a readable string
     char mcu_name[18];
     snprintf(mcu_name, sizeof(mcu_name), "%02X:%02X:%02X:%02X:%02X:%02X", 
              mac_base[0], mac_base[1], mac_base[2], mac_base[3], mac_base[4], mac_base[5]);
 
     ESP_LOGI("app_main", "ESP32 MAC address: %s", mcu_name);
 
+    // Initialize Firebase app and database
     FirebaseApp app = FirebaseApp(API_KEY);
     RTDB db = RTDB(&app, DATABASE_URL);
 
+    // Create the Firebase path based on user ID and MCU MAC
     std::string firebase_path = "/users/" + std::string(user_id) + "/sensors" + "/" + mcu_name;
     printf("Firebase path: %s\n", firebase_path.c_str());
 
+    // Prepare initial Firebase JSON objects
     Json::Value UserReset;
     Json::Value alarm_json;
     Json::Value Initial_Device_Name;
@@ -299,6 +364,7 @@ extern "C" void app_main(void) {
     Json::Value DeleteDevice;
     char warning_message[400] = "";
 
+    // Set initial device state in Firebase
     DeleteDevice["Delete_Sensor"] = "No";
     sendDataToFirebase(db, firebase_path + "/Delete", DeleteDevice);
 
@@ -306,7 +372,7 @@ extern "C" void app_main(void) {
     printf("Device setup time: %lld us\n", (wifi_connected_time - device_start_time));
 
     vTaskDelay(pdMS_TO_TICKS(100));
-    
+
     UserReset["Reset_Peripherals"] = "No";
     sendDataToFirebase(db, firebase_path + "/Reset", UserReset);
 
@@ -319,46 +385,52 @@ extern "C" void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(100));
 
     Initial_Device_Name["Sensor"] = ROOM_NAME;
-    printf("room name = %s\r\n",ROOM_NAME);
-    sendDataToFirebase(db,firebase_path + "/Name", Initial_Device_Name);
+    printf("room name = %s\r\n", ROOM_NAME);
+    sendDataToFirebase(db, firebase_path + "/Name", Initial_Device_Name);
 
     vTaskDelay(pdMS_TO_TICKS(100));
 
     BatteryJson["message"] = "Battery is in good state.";
-    sendDataToFirebase(db,firebase_path + "/Battery", BatteryJson);
+    sendDataToFirebase(db, firebase_path + "/Battery", BatteryJson);
 
     vTaskDelay(pdMS_TO_TICKS(100));
 
     alarm_json["alarmTime"] = "";
     sendDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
 
+    // Create FreeRTOS queues for sensor data
     gas_sensor_queue = xQueueCreate(GAS_QUEUE_LENGTH, GAS_QUEUE_ITEM_SIZE);
     ir_sensor_queue = xQueueCreate(IR_QUEUE_LENGTH, IR_QUEUE_ITEM_SIZE);
     uv_sensor_queue = xQueueCreate(UV_QUEUE_LENGTH, UV_QUEUE_ITEM_SIZE);
     battery_queue = xQueueCreate(BATTERY_QUEUE_LENGTH, BATTERY_QUEUE_ITEM_SIZE);
     smoke_sensor_queue = xQueueCreate(SMOKE_QUEUE_LENGTH, SMOKE_QUEUE_ITEM_SIZE);
 
+    // Check if queues were created successfully
     if (!gas_sensor_queue || !ir_sensor_queue || !uv_sensor_queue || !battery_queue || !smoke_sensor_queue) {
         ESP_LOGE("app_main", "Queue creation failed!");
         return;
     }
 
+    // Initialize sensor data structs
     GasSensorData gas_received_data;
     IRSensorData ir_received_data;
     UVSensorData uv_received_data;
     BatteryData battery_data;
     SmokeSensorData smoke_received_data;
 
+    // Start tasks for ADC readings and smoke sensor handling
     xTaskCreate(run_adc1, "ADC1 \r\n", 8192, NULL, 5, NULL);
     xTaskCreate(smoke_task, "Smoke Sensor", 4096, NULL, 5, NULL);
     xTaskCreate(run_adc2, "ADC2 \r\n", 8192, NULL, 4, NULL);
 
+    // Setup PWM (for alarms, etc.)
     setup_pwm();
 
     bool alarmOn = false;
-    bool battery_was_good = true; //dictates if the battery was at 9V
+    bool battery_was_good = true; // Track previous battery state
     bool battery_replaced = false;
 
+    // Initialize sensor flags
     gas_received_data.sensor_triggered = false;
     gas_received_data.gas_warning = false;
 
@@ -373,9 +445,9 @@ extern "C" void app_main(void) {
     smoke_received_data.sensor_confirmed_extreme = false;
 
     battery_data.battery_good = true;
-    
+
     bool fireDetected = false;
-    Set_SystemTime_SNTP();
+    Set_SystemTime_SNTP(); // Sync system time via NTP
 
     uint8_t uv_score = 0;
     uint8_t ir_score = 0;
@@ -387,31 +459,26 @@ extern "C" void app_main(void) {
     int64_t Certainty_last_detection_time = 0;
     int64_t Potential_Fire_Duration = 0;
 
-    // Initialize alarm status
+    // Main loop
     while (true) {
         Certainty = 0;
         battery_replaced = false;
-        //printf("Loop iteration \r\n");
         fireDetected = false;
         memset(warning_message, 0, sizeof(warning_message));
 
-        
+        // Check if battery message received
         if (xQueueReceive(battery_queue, &battery_data, (TickType_t)5) == pdTRUE) {
             ESP_LOGI("app_main", "Battery Received message: %s", battery_data.message);
-
             BatteryJson["message"] = battery_data.message;
 
             int64_t firebase_push_start = esp_timer_get_time();
-
-            updateDataToFirebase(db,firebase_path + "/Battery", BatteryJson);
-
+            updateDataToFirebase(db, firebase_path + "/Battery", BatteryJson);
             int64_t firebase_push_end = esp_timer_get_time();
-           // printf("Firebase Push Latency: %lld us\n", (firebase_push_end - firebase_push_start));
-        }       
+        }
 
+        // Check if battery was replaced
         if (battery_data.battery_good && !battery_was_good) {
             disable_alarm();
-            //reset mq2 sensor
             ADC1_Reset_Request = true;
             Smoke_Reset_Request = true;
             battery_replaced = true;
@@ -419,121 +486,92 @@ extern "C" void app_main(void) {
         }
         battery_was_good = battery_data.battery_good;
 
-        // Check Gas Sensor Data
+        // Read gas sensor queue
         if (xQueueReceive(gas_sensor_queue, &gas_received_data, (TickType_t)5) == pdTRUE) {
             ESP_LOGI("app_main", "Gas Received message: %s", gas_received_data.message);
             Json::Value gas_json;
             gas_json["gas_active"] = gas_received_data.sensor_triggered;
             gas_json["message"] = gas_received_data.message;
-            //updateDataToFirebase(db, firebase_path + "/Gas", gas_json);
         }
-        
-        // Check IR Sensor Data
+
+        // Read IR sensor queue
         if (xQueueReceive(ir_sensor_queue, &ir_received_data, (TickType_t)5) == pdTRUE) {
             ESP_LOGI("app_main", "IR Received message: %s", ir_received_data.message);
             Json::Value ir_json;
             ir_json["ir_active"] = ir_received_data.sensor_confirmed;
             ir_json["message"] = ir_received_data.message;
-            //updateDataToFirebase(db, firebase_path + "/IR", ir_json);
         }
-        
-        // Check UV Sensor Data
+
+        // Read UV sensor queue
         if (xQueueReceive(uv_sensor_queue, &uv_received_data, (TickType_t)5) == pdTRUE) {
             ESP_LOGI("app_main", "UV Received message: %s", uv_received_data.message);
             Json::Value uv_json;
             uv_json["uv_active"] = uv_received_data.sensor_confirmed;
             uv_json["message"] = uv_received_data.message;
-            //updateDataToFirebase(db, firebase_path + "/UV", uv_json);           
         }
-        
-        // Check Smoke Sensor Data
+
+        // Read smoke sensor queue
         if (xQueueReceive(smoke_sensor_queue, &smoke_received_data, (TickType_t)5) == pdTRUE) {
             ESP_LOGI("app_main", "Smoke Received message: %s", smoke_received_data.message);
             Json::Value smoke_json;
             smoke_json["smoke_warning"] = smoke_received_data.sensor_warning;
             smoke_json["smoke_confirmed"] = smoke_received_data.sensor_confirmed;
             smoke_json["message"] = smoke_received_data.message;
-            //updateDataToFirebase(db, firebase_path + "/Smoke", smoke_json);
         }
 
-        if (uv_received_data.sensor_confirmed) {
-           printf("UV confirmed\r\n");
+        // --------------------------------------------------------------------------------------------------
+        // Process sensor scores
+        uv_score = uv_received_data.sensor_confirmed ? 25 : 0;
+        ir_score = ir_received_data.sensor_confirmed ? 25 : 0;
+        smoke_score = smoke_received_data.sensor_confirmed ? 25 : 0;
+        gas_score = (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) ? 25 : 0;
+        Certainty = uv_score + ir_score + smoke_score + gas_score;
+
+        // Immediate fire detected (high certainty)
+        if (Certainty >= 75) {
+            if (!alarmOn) {
+                fireDetected = true;
+                alarmOn = true;
+
+                alarm_trigger_start = esp_timer_get_time();
+                trigger_alarm();
+
+                alarm_json["alarm_status"] = "Alarm";
+                alarm_json["message"] = "Alarm is ON - Fire detected!";
+                alarm_json["alarmTime"] = Get_current_date_time();
+                updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
+            }
         }
-        if (ir_received_data.sensor_confirmed) {
-            printf("IR confirmed\r\n");        }
-        if (smoke_received_data.sensor_confirmed) {
-            printf("Smoke confirmed\r\n");        }
-        if (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) {
-            printf("Gas confirmed\r\n");        }
- 
-        //SENSORS CONDITIONS------------------------------------------------------------------------------------------------------------------------------------------------------
-            /*
-                uv_received_data.sensor_confirmed: UV Sensor sustained rise above baseline for ≥ 300 ms
-                ir_received_data.sensor_confirmed: Rise in IR voltage above threshold for ≥ 5000 ms
-                smoke_received_data.sensor_confirmed: Smoke value exceeded calibrated threshold
-                gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered: Gas concentration > 200 ppm
-            */
 
-            uv_score = uv_received_data.sensor_confirmed ? 25 : 0;
-            ir_score = ir_received_data.sensor_confirmed ? 25 : 0;
-            smoke_score =  smoke_received_data.sensor_confirmed ? 25 : 0;
-            gas_score = (gas_received_data.sensor_in_scope && gas_received_data.sensor_triggered) ? 25 : 0;
-            Certainty = uv_score + ir_score + smoke_score + gas_score;
-
-           printf("Certainty value = %u\r\n",Certainty);
-           
-           //ALERT STATE 
-           if (Certainty >= 75) {//trigger alarm immediately (detected flaming fire)
-            printf("Certainty >= 75\r\n");
-               if (!alarmOn) {//sound buzzer and send alarm
-                   fireDetected = true;
-                   alarmOn = true;
-
-                   alarm_trigger_start = esp_timer_get_time();
-                   trigger_alarm();
-
-                   alarm_json["alarm_status"] = "Alarm";
-                   alarm_json["message"] = "Alarm is ON - Fire detected!";
-                   alarm_json["alarmTime"] = Get_current_date_time();
-                   updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-               }
-           }
-           
-           else if ((Certainty >= 50) && (Certainty < 75)) {//potential smoldering fire
-            printf("(Certainty >= 50) && (Certainty < 70\r\n");
-
-               //TO DO: Monitor for 5 more seconds, then trigger alarm if sustained (i.e., if 50 <= Certainty < 70 for 5 seconds)
-                if (confirmed_Certainty_value == false) {
-                    Certainty_last_detection_time = esp_timer_get_time();
-                    confirmed_Certainty_value = true;
-                }
-
-                else if (confirmed_Certainty_value == true) {
-                    Potential_Fire_Duration = (esp_timer_get_time() - Certainty_last_detection_time);
-                    if (Potential_Fire_Duration >= Potential_Fire_Time) {
-                        //sound buzzer and alarm Firebase
-                        if (!alarmOn) {//sound buzzer and send alarm
-                            fireDetected = true;
-                            alarmOn = true;
-                            trigger_alarm();
-                            alarm_json["alarm_status"] = "Alarm";
-                            alarm_json["message"] = "Alarm is ON - Fire detected!";
-                            alarm_json["alarmTime"] = Get_current_date_time();
-                            updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-                        }
+        // Possible smoldering fire (medium certainty)
+        else if ((Certainty >= 50) && (Certainty < 75)) {
+            if (confirmed_Certainty_value == false) {
+                Certainty_last_detection_time = esp_timer_get_time();
+                confirmed_Certainty_value = true;
+            } else {
+                Potential_Fire_Duration = (esp_timer_get_time() - Certainty_last_detection_time);
+                if (Potential_Fire_Duration >= Potential_Fire_Time) {
+                    if (!alarmOn) {
+                        fireDetected = true;
+                        alarmOn = true;
+                        trigger_alarm();
+                        alarm_json["alarm_status"] = "Alarm";
+                        alarm_json["message"] = "Alarm is ON - Fire detected!";
+                        alarm_json["alarmTime"] = Get_current_date_time();
+                        updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
                     }
                 }
             }
+        }
            
+            // Suspicious environment (low certainty)
            else if ((Certainty > 0) && (Certainty < 50)) {//Suspicious environment
             if (alarmOn) {
                 alarmOn = false;
-                disable_alarm(); // optional safety
+                disable_alarm(); // Disable buzzer if previously activated
             }
-
-            printf("(Certainty >= 30) && (Certainty < 50\r\n");
-
-            // TO DO: Display the sensors that have been confirmed
+            
+            // Build string of which sensors are active
             std::string confirmed_sensors = "Confirmed Sensors: ";
             
             if (uv_received_data.sensor_confirmed) {
@@ -551,10 +589,10 @@ extern "C" void app_main(void) {
             
             ESP_LOGI("app_main", "Confirmed sensors: %s", confirmed_sensors.c_str());
            }
+
            else if (Certainty == 0) {//WARNING STATE
             confirmed_Certainty_value = false;
             Certainty_last_detection_time = 0;
-            printf("Certainty = 0\r\n");
             if (alarmOn) {
                 alarmOn = false;
                 disable_alarm(); // optional safety
@@ -588,11 +626,7 @@ extern "C" void app_main(void) {
                             strcat(warning_message, gas_received_data.message);
                             strcat(warning_message, " ");  // Add space after message
                         }
-                        /*
-                        if (device_disconnected) {
-                            strcat(warning_message, "Wi-Fi is OFF");
-                        }
-                        */
+
                     
                         // Trim trailing space if present
                         size_t len = strlen(warning_message);
@@ -612,39 +646,39 @@ extern "C" void app_main(void) {
 
            } 
 
-    //---------------------------------------------------------------------------------------------------------------------------------------------------------
-        
-    ExternalReset = ResetDeviceFunction(db, firebase_path);//recalibrate sensors as per User Request
-    if (ExternalReset == true) {
-        printf("Reset -----------------------------------------------\r\n");
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------
+            
+        ExternalReset = ResetDeviceFunction(db, firebase_path);//recalibrate sensors as per User Request
+        if (ExternalReset == true) {
+            printf("Reset -----------------------------------------------\r\n");
 
-        if (alarmOn) {
-            alarmOn = false;
+            if (alarmOn) {
+                alarmOn = false;
+            }
+            disable_alarm();
+
+            ADC1_Reset_Request = true;
+            Smoke_Reset_Request = true;
+            
+            alarm_json["alarm_status"] = "Safe";
+            alarm_json["message"] = "Alarm is OFF - No fire detected.";
+            updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
+        
+            alarm_json["alarmTime"] = "";
+            updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);       
         }
-        disable_alarm();
 
-        ADC1_Reset_Request = true;
-        Smoke_Reset_Request = true;
-        
-        alarm_json["alarm_status"] = "Safe";
-        alarm_json["message"] = "Alarm is OFF - No fire detected.";
-        updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);
-    
-        alarm_json["alarmTime"] = "";
-        updateDataToFirebase(db, firebase_path + "/Alarm", alarm_json);       
-    }
+        vTaskDelay(pdMS_TO_TICKS(10)); // Delay before the next loop iteration
 
-    vTaskDelay(pdMS_TO_TICKS(10)); // Delay before the next loop iteration
+        ExternalDelete = DeleteDeviceFunction(db, firebase_path);
+        if (ExternalDelete == true) {
+            printf("Delete------------------------------------------------\r\n");
+            disable_alarm();
+            ESP_LOGI("app_main", "Deleted device");
+            break;
+        }
 
-    ExternalDelete = DeleteDeviceFunction(db, firebase_path);
-    if (ExternalDelete == true) {
-        printf("Delete------------------------------------------------\r\n");
-        disable_alarm();
-        ESP_LOGI("app_main", "Deleted device");
-        break;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(10)); // Delay before the next loop iteration
+        vTaskDelay(pdMS_TO_TICKS(10)); // Delay before the next loop iteration
     }
 
     ESP_LOGI("app_main", "Resetting device");
