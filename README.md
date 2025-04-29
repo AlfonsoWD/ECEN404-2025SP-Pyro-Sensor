@@ -42,8 +42,18 @@ The mobile app allows users to:
 
 ---
 
-## 🔧 Microcontroller Subsystem (To Be Filled In)
-_This section is reserved for the microcontroller team to describe BLE protocols, sensor triggering logic, and how data is sent to the app._
+## 🔧 Microcontroller Subsystem 
+### Key Features
+- **BLE setup**  
+  - Read Wi-Fi credentials and device name from BLE characteristics.
+  - Allows for multiple connection attempts
+
+- **Device setup**
+  - Connect user to Firebase
+  - Calibrates smoke, IR, gas, and UV sensors with clean room variables.
+
+- **Sensor Monitoring**  
+  - MCU keeps track of each sensor status: sound buzzer and send Alarm notification to Firbase once multi-sensor threshold is met.
 
 ---
 
@@ -59,5 +69,11 @@ _This section is reserved for the hardware team to describe the physical fire/sm
 - Firebase project with Authentication, Realtime Database, and Storage configured
 - A Firebase `google-services.json` file in `/app/`
 - Twilio API credentials if testing emergency SMS functionality
+
+  ## Getting Started (MCU)
+
+### Prerequisites
+- ESP-IDF environment installed (e.g., Visual Studio Code)
+- ESP32-S3 MCU ready to flash code
 
 
