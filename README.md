@@ -57,7 +57,7 @@ The mobile app allows users to:
 
 ---
 
-## 🔩 Hardware Subsystem (To Be Filled In)
+## 🔩 Hardware Subsystem 
 _This section is reserved for the hardware team to describe the physical fire/smoke sensor design, power delivery, and enclosures._
 
 ---
