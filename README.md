@@ -73,7 +73,7 @@ _This section is reserved for the hardware team to describe the physical fire/sm
   ## Getting Started (MCU)
 
 ### Prerequisites
-- ESP-IDF environment installed (e.g., Visual Studio Code)
+- ESP-IDF environment installed (e.g., Visual Studio Code) to build project.
 - ESP32-S3 MCU ready to flash code
 
 
