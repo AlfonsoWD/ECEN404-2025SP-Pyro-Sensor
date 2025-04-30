@@ -14,9 +14,9 @@ class TwilioService {
     private val TAG = "TwilioService"
     private val database = FirebaseDatabase.getInstance().reference
     private val client = OkHttpClient()
-    private val accountSid = "ACce0e10c1c66cbdda5a07746df490015e"
-    private val authToken = "63740f0bc6507a378ee576e9a074c689"
-    private val fromNumber = "+18333643693"
+    private val accountSid = "Enter Own account"
+    private val authToken = "Enter own auth Token"
+    private val fromNumber = "Enter own Phone"
     private val baseUrl = "https://api.twilio.com/2010-04-01/Accounts/$accountSid/Messages.json"
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
 
